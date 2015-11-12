@@ -1,0 +1,181 @@
+
+                 I2S Hardware Dependent Module(HDM) - 0.4.0
+                 ==========================================
+
+History of Changes
+==================
+
+    0.4.0  Moved user configurable parameters from debugfs to standard mostcore path
+    0.3.1  Improved compatibility with mostcore API
+    0.3.0  Adapted for Mostcore version 4.0.7
+    0.2.0  Adapted for Mostcore version 4.0.4
+    0.1.0  Initial Internal Release (Tested with OS81110)
+
+Module Description
+==================
+
+    The HDM provides access to I2S Interface through Mostcore.
+    It registers the I2S as a MOST interface to Mostcore and send/receive
+    packets from/to Mostcore.
+
+    This version contains the following files,
+
+        1.README         - This file
+        2.Makefile       - Kernel modules make file
+        3.hdm_i2s.c      - HDM
+        4.hdm_i2s.h      - Header file
+        5.configure.sh   - A script to configure I2S parameters
+
+
+    Current implementation supports up to 8 I2S channels at any given time.
+
+How To Build
+============
+
+    To cross compile the Module, you need to have toolchain for the specific
+    hardware platform. If Mostcore is not already integrated into the kernel,
+    HDM needs to be build with Mostcore(HDM Makefile expects mostcore diretory
+    to be present in the parent directory).
+
+    Command to build the Module,
+    make ARCH=<arch> CROSS_COMPILE=<cross compiler> KDIR=<kernel source dir>
+
+    Example for make (may differ from your configuration):
+    make ARCH=arm KDIR=/home/ubuntu/arwen/linux-xlnx-xilinx-v14.7 \
+       CROSS_COMPILE=/home/ubuntu/arwen/arm-2013.11/bin/arm-none-linux-gnueabi-
+
+    After build process completed, the current directory will contain all the
+    builded modules (mostcore.ko, hdm_i2s.ko).
+
+How To Run
+==========
+
+    1) Load Mostcore  and hdm (using "insmod") in the following order,
+
+        insmod mostcore.ko
+        insmod hdm_i2s.ko
+
+    2) Configure I2S parameters (see "How to configure" section)
+
+Integration into BSP
+====================
+
+    This module can be integrated into any Linux BSP. The module was tested with
+    Linux Kernel v3.0.35 and Mostcore 4.0.7. HDM expects DTS information to be
+    available inside kernel for the configuration of hardware specific
+    settings in HDM.
+
+    The module was tested on Arwen platform MSF-BSP version V1.1.0
+    Device Tree Version: Xilinx EDK 2013.2 EDK_P.68d
+
+How to configure
+================
+
+This module builds a sysfs infrastructure to configure the I2S interface:
+
+    # find /sys/devices/virtual/most/mostcore/devices/mdev1/bus -printf "%M %p\n"
+    drwxr-xr-x /sys/devices/virtual/most/mostcore/devices/mdev1/bus
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_a_enable
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_a_clock_speed
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_a_clock_mode
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/clock_source
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_a_data_format
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/bus_enable
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_b_clock_mode
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/dcm_clock_multiplier
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_b_enable
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_b_clock_speed
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/dcm_clock_divider
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/ch0_bpf
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/ch1_bpf
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/ch2_bpf
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/ch3_bpf
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/ch4_bpf
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/ch5_bpf
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/ch6_bpf
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/ch7_bpf
+    -rw-rw-rw- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_b_data_format
+
+
+"configure.sh" script contains the supported values for all parameters.
+The script also contains some example configurations.
+
+Important Note: Write 1 to "bus_enable" after configuring all other parameters.
+
+To configure a specific configuration run the script as,
+
+   ./configure.sh <configuration_option>
+
+   ( ex: ./configure.sh left_64fs_16bit )
+
+    Following configuration options are currently available,
+    (The script can be extended to support more configurations)
+
+    delay_64fs_16bit
+    left_64fs_16bit
+    right_64fs_16bit
+    delay_64fs_seq
+    delay_128fs_seq
+    delay_256fs_seq
+    delay_512fs_seq
+    seq_64fs
+    seq_128fs
+    seq_256fs
+    seq_512fs
+
+    Important Note: The application must configure the buffer size as 2044 bytes
+
+Testing
+=======
+
+    Stereo Audio Testing
+    ====================
+
+    HDM was tested with 4 bytes stereo audio using the following setup,
+
+        Audio In
+          Optolyzer
+            MOST Network
+              INIC on MSP (OS81110)
+                I2S IP on MSP
+                  I2S HDM
+                    Mostcore
+                      Loop-back application
+                    Mostcore
+                  I2S HDM
+                I2S IP on MSP
+              INIC on MSP (OS81110)
+            MOST Network
+          Optolyzer
+        Audio Out
+
+
+    Tested Formats are (supported by OS81110),
+
+        seq_64fs,  delay_64fs_seq,
+        seq_128fs, delay_128fs_seq,
+        seq_256fs, delay_256fs_seq,
+        seq_512fs, delay_512fs_seq,
+        delay_64fs_16bit,
+        left_64fs_16bit,
+        right_64fs_16bit
+
+    Loop-back Sockets Testing
+    =========================
+
+    HDM was tested for different frame size (4, 8, 16, 32, 64) using the following setup,
+
+        Test application (TX Thread)
+          Mostcore
+            I2S HDM
+              MOST Network
+                I2S IP on MSP (TX Channel)
+                  INIC on MSP (OS81110)
+                    Loop-back Socket Connection
+                  INIC on MSP (OS81110)
+                I2S IP on MSP (RX Channel)
+              MOST Network
+            I2S HDM
+          Mostcore
+        Test application (RX Thread)
+

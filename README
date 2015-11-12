@@ -1,0 +1,108 @@
+This is the version 1.3.5 of the MOST Linux Driver.
+
+The package consists of the following components:
+  mostcore
+  aim-cdev
+  aim-network
+  aim-sound
+  aim-v4l2
+  hdm-dim2
+  hdm-i2c
+  hdm-i2s
+  hdm-pcie
+  hdm-usb
+
+See manuals and release notes of the corresponding components
+for the information about capabilities and known issues.
+
+Not all combinations of platforms and HDMs are tested.
+
+At the moment there is no platform supporting all HDMs.
+
+Please see the manuals and integration examples of the corresponding
+components to get the package running on your platform.
+
+Known platform dependent code:
+  hdm-i2c/platform/
+  hdm-dim2/platform/
+
+To see make options of the package, run
+  make help
+
+
+HISTORY OF CHANGES
+==================
+
+1.3.5
+-----
+
+- aim-cdev: added support of the poll syscall
+- dim2-hdm: fixed reordering by IO operations
+- made diverse small code improvements
+
+
+1.3.4
+-----
+
+- aim-sound: improved stability of ALSA 5.1
+- aim-sound: more information about fails in kernel log
+- core: fixed regression in most_deregister_interface appeared in 1.3.2
+
+
+1.3.3
+-----
+
+- aim-sound: added ALSA 5.1 support
+- core: added fair distribution of buffers
+- usb-hdm: fixed doing DMA on stack
+- usb-hdm: fixed MAC address representation
+- dim2-hdm: fixed too big buffer size for DIM2
+- made diverse small code improvements
+
+
+1.3.2
+-----
+
+- fixed sync request (over USB interface) for OS81118 Rev.D
+- fixed multi-AIM support
+  (simultaneous MEP/MDP is possible)
+- made diverse small code improvements
+
+known issues
+
+- arbitration for simultaneous MEP/MDP is not fair
+
+
+1.3.1
+-----
+
+changes
+
+- fixed 1.3.0 regression: babble on in pipe of USB-HDM
+  (fixes synchronous and isochronous Rx over USB)
+
+
+1.3.0
+-----
+
+changes
+
+- fixed spin_lock/spin_unlock unmatching by unloading V4L-AIM
+- fixed MAC address representation for PCIe-INIC
+- fixed incompatibilities to current PCIe-INIC firmware
+- fixed race between register_netdev() and ndo_open()
+  (no crash by opening device exact after registering)
+- fixed bug blocking open of character devices
+- fixed endianess issues in USB-HDM if running with USB-INIC RevD
+- removed noisy kernel logs
+- fixed resource leak by closing character device
+- made diverse small code improvements
+
+known issues
+
+- possible endianess issues in representation of MAC address by USB-HDM
+  if running with USB-INIC RevC
+- multi-AIM support doesn't work
+  (simultaneous MEP/MDP is not possible)
+- USB-HDM is not working properly in virtual environment
+  (babble on IN pipe)

@@ -1,0 +1,97 @@
+
+                 I2C Hardware Dependent Module(HDM) - 3.0.0
+                 ==========================================
+
+History of Changes
+==================
+
+    3.0.0  Adapted for Mostcore version 4.0.9
+           Improved compatibility with Mostcore API
+           Description format changed to i2c-<bus>-<address>
+           Use channel names "rx" and "tx" instead of "ch0" and "ch1"
+    2.0.0  File names changed
+           ZYNQ platform dependent module added
+    1.0.1  Adapted for Mostcore version 4.0.7, Fixed compiler warnings
+    1.0.0  Adapted for Mostcore version 4.0.4
+    0.3.2  Bug fix
+    0.3.1  GPL License information added
+    0.3.0  Polling support for read
+    0.2.0  Added support to handle multiple INIC's sharing one IRQ line
+    0.1.0  Initial Internal Release
+
+Module Description
+==================
+
+    The I2C HDM provides access to INIC control port & IO Companion control port
+    through Mostcore. It registers the control port (I2C) as a MOST interface
+    to Mostcore and send/receive packets from/to Mostcore.
+
+    This version contains the following files
+
+        1.README      - This file
+        2.Makefile    - Kernel modules make file
+        3.hdm_i2c.c   - I2C HDM
+
+    Current implementation of HDM supports only control data type. So it
+    has only two channels (one channel can be configured as control RX and the
+    other channel can be configured as control TX). Transfer of asynchronous(MDP)
+    data over control port shall be handled by Netservice layer (without the
+    knowledge of HDM). That means asynchronous data over control port can be
+    transferred only via Netservice.
+
+    This module supports two command line parameters.
+
+    First Parameter name is "polling_req" and the value passed should be a
+    boolean (0 or 1). For ex., polling_req=1. It enables the polling mechanism
+    instead of irq, for i2c read. Default = 0 (use irq).
+
+    Second Parameter name is "scan_rate" and the value passed should be an
+    integer. For ex., scan_rate=300. It specifies the Polling rate in times/sec.
+    Default = 100.
+
+How To Build
+============
+
+    To cross compile the Module, you need to have toolchain for the specific
+    hardware platform. If Mostcore is not already integrated into the kernel,
+    HDM needs to be build with Mostcore(HDM Makefile expects mostcore diretory
+    to be present in the parent directory).
+
+    Command to build the Module,
+    make ARCH=<arch> CROSS_COMPILE=<cross compiler> KDIR=<kernel source dir>
+
+    Example for make (may differ from your configuration):
+    make ARCH=arm KDIR=~/imx6/sdk/ltib/rpm/BUILD/linux \
+       CROSS_COMPILE=/opt/freescale/usr/local/gcc-4.6.2-glibc-2.13\
+       -linaro-multilib-2011.12/fsl-linaro-toolchain/bin/arm-none-linux-gnueabi-
+
+    After the completion of build process, the current directory would contain
+    all the builded modules (mostcore.ko, plat_imx6q.ko, hdm_i2c.ko).
+
+    Note: By default the Makefile builds iMX6Q platform dependent module.
+          Makefile can be modified to select a different platform dependent module.
+          (replace plat_xxxx with plat_yyyy)
+
+How To Run
+==========
+
+    Load Mostcore, Platform dependent module and hdm (using "insmod") in the
+    following order,
+
+        insmod mostcore.ko
+        insmod plat_imx6q.ko
+        insmod hdm_i2c.ko
+
+Integration into BSP
+====================
+
+    This module can be integrated into any Linux BSP. It was tested with
+    Linux Kernel v3.0.35 and Mostcore 4.0.7. Before integrating the HDM,
+    platform dependent initialization module should be integrated for INIC
+    control interface. The platform dependent module must instantiate a new
+    i2c device (INIC) with name "most_i2c".
+
+    This package also includes platform dependent modules to support INIC
+    control interface on i.MX6Q platform & ARWEN ZYNQ platform. Module sources
+    resides under the directory "platform/". These modules allocates a new i2c
+    device with name "most_i2c" and address 0x20. They also provide the IRQ number.

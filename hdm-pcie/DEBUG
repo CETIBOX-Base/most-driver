@@ -1,0 +1,93 @@
+This file describes debug possibilities for the PCIe Hardware Dependent Module.
+
+Debug possibilities of the PCIe HDM are awailable automatically after loading of hdm_pcie.ko:
+
+	# insmod hdm_pcie.ko
+
+During the probe stage, the module builds debug infrastructure for each PCIe interface:
+
+	# find /sys/devices/virtual/most/mostcore/devices/mdev0/debug -printf "%M %P\n"
+
+	drwxr-xr-x
+	-rw-rw-rw- rolling_offset
+	-rw-rw-rw- current_channel_index
+	-r--r--r-- dump_bar1
+	-r--r--r-- dump_bar2
+	-r--r--r-- dump_descriptors
+	-rw-rw-rw- pctrl_dthr
+	-rw-rw-rw- pctrl_tc
+	--w--w--w- pdma_ct
+	--w--w--w- pdma_db
+	-rw-rw-rw- pint
+	-r--r--r-- mbox79
+
+
+Further examples assume current directory is /sys/devices/virtual/most/mostcore/devices/mdev0/debug:
+
+	# cd /sys/devices/virtual/most/mostcore/devices/mdev0/debug
+
+The properties "dump_bar1" and "dump_bar2" are used to show content of the respective
+bar1 or bar2 memory areas.
+
+The property "dump_descriptors" is used to show content of the channel's descriptor chain.
+
+Output of any property cannot be longer than page size of the used platform.
+On i386, this is 4096. The property "rolling_offset" is used as workaround for
+this limitation. It grows automatically after each output of "dump_bar1",
+"dump_bar2" or "dump_descriptors".  The property "rolling_offset" may be changed
+or viewed any time.
+
+Example:
+
+	# echo 0 >rolling_offset
+	# cat dump_bar1 |head
+	0000: 00000001 00000001 00000001 00000001 00000000 00000000 00000000 00000000
+	0020: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+	0040: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+	0060: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+	0080: 00000400 00000400 00000400 00000400 00000000 00000000 00000000 00000000
+	00A0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+	00C0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+	00E0: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+	0100: 36CA4000 00000000 36CA3000 00000000 36CA2000 00000000 36CA1000 00000000
+	0120: 00000000 00000000 00000000 00000000 00000000 00000000 00000000 00000000
+
+	# cat rolling_offset
+	0x400
+
+To see the content of the channel's descriptors chain you must additionally set
+"current_channel_index" property:
+
+	# echo 0 >rolling_offset
+	# echo 0 >current_channel_index
+	# cat dump_descriptors |head
+	36CA4000: 800001FF 00000000 00000000 36C51000
+	36CA4010: C0000000 00000000 00000000 36CA4080
+	36CA4020: 00000000 00000000 00000000 00000000
+	36CA4030: 00000000 00000000 00000000 00000000
+	36CA4040: 00000000 00000000 00000000 00000000
+	36CA4050: 00000000 00000000 00000000 00000000
+	36CA4060: 00000000 00000000 00000000 00000000
+	36CA4070: 00000000 00000000 00000000 00000000
+	36CA4080: 800001FF 00000000 00000000 36C53000
+	36CA4090: C0000000 00000000 00000000 36CA4100
+
+The property "pctrl_dthr" is used to change the DTHR Value
+(Descriptor Cache Buffer Refill Threshold) of the PCTRLn Register.
+
+The property "pctrl_tc" is used to change the TC Value
+(Channel PCIe transfer class) of the PCTRLn Register.
+
+The write-only property "pdma_ct" is used to change the CT value
+(Channel Table Gap Timer) of the PDMA register.
+
+The write-only property "pdma_db" is used to change the DB value
+(Data Buffer request gap timer) of the PDMA register.
+
+The property "pint" is used to show the content of the PINT (PCIe Interrupt)
+register by read operation or to set bits [0-7] of the PINT register
+by write operation.
+
+The property "mbox79" is used to read content of the MAILBOX_REGISTER 79
+that may be used for triggering of the PCI bus analyzer.
+

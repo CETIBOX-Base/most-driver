@@ -1,0 +1,170 @@
+
+                 MediaLB DIM2 Hardware Dependent Module(HDM) - 1.7.0
+                 ===================================================
+
+History of Changes
+==================
+
+    1.7.0  Added read-only property .../mdevN/bus/state representing MediaLB
+           lock state. The property contains "locked" if MediaLB state is locked
+           or empty string in other case.
+
+    1.6.1  Fixed checking buffer size for synchronous data type.
+           Fixed crash if Tx channel is closed in the middle of transmitting.
+           More precise filtering network status messages coming over MDP.
+
+    1.6.0  Channel names in sysfs represents MediaLB channel addresses
+           instead of channel indexes.
+           Thus new names are ca2, ca4, ca6 instead of ch1, ch2, ch3.
+
+           More strong checking of channel configuration.
+
+           More user friendly configuration of buffer size since driver reduces
+           buffer size to maximal possible correct value for isochronous and
+           synchronous data types conform to given sub-buffer size and
+           not bigger than given buffer size. The reduction happens by opening
+           the channel.
+
+           Interface description represents base address of DIM2 IP macro
+           to distinguish between different ports.
+           Thus the description now looks like "dim2-000000000218c000".
+
+    1.5.1  Supported 7.1/24 sound for sync data type.
+
+           Adapted for Mostcore 4.0.8, improved compatibility.
+
+           Code improvements (Linux code style, readability).
+
+    1.5.0  Platform dependent clock enable / disable routines are moved to
+           platform dependent module.
+
+    1.4.0  Reverted moving clock enable/disable functions to platform dependent
+           module.
+
+           Fixed preparation/unpreparation of clocks (needed for yunger kernels).
+
+           HDM is made device tree friendly and added device tree friendly
+           platform device.
+
+           Fixed name of platform device (medialb_dim2).
+
+    1.3.1  Formatted using astyle
+
+    1.3.0  Adapted for Mostcore version 4.0.7
+
+           Platform dependent clock enable / disable routines are moved to
+           platform dependent module.
+
+           Fixed compiler warnings
+
+    1.2.0  Fixed wrong name of platform device in dim2_mx6q.c
+
+    1.1.0  Fixed error handling.
+
+           Fixed kernel crash by unloading HW dependent kernel object
+           after HDM kernel object.
+
+           More efficient internal DIM2 memory usage
+           (allows infinite open/close of channels).
+
+           Support parameter "subbuffer_size" for isoc-avp channels.
+
+           User friendly configuration: isoc-avp buffer size is reduced by open
+           to nearest whole number of subbuffers.
+
+           Different source code improvements.
+
+    1.0.0  Adapted for Mostcore version 4.0.4
+
+    0.4.0  Synchronous data type support
+
+    0.3.0  Several Bug fixes
+
+    0.2.0  Internal Release with change in Interrupt Handling mechanism
+
+    0.1.0  Initial Internal Release
+
+Module Description
+==================
+
+    The DIM2 HDM provides access to MediaLB Device Interface Macro 2 through
+    Mostcore. It registers the DIM2 as a MOST interface to Mostcore and
+    send/receive packets from/to Mostcore.
+
+    This version contains the following files,
+
+        README           - This file
+        Makefile         - Kernel modules make file
+        dim2_hdm.c       - DIM2 HDM
+        dim2_hdm.h       - DIM2 HDM Header
+        dim2_hal.c       - DIM2 HAL
+        dim2_hal.h       - DIM2 HAL Header
+        dim2_reg.h       - DIM2 Registers header
+        dim2_errors.h    - DIM2 Error macros header
+        dim2_mx6q.c      - imx6q DIM2 platform device module
+        dim2_mx6q_dt.c   - Device tree friendly imx6q DIM2 platform device module
+
+
+    Current implementation supports up to 32 MediaLB channels at any given time.
+    Supported data types,
+
+        Control, Asynchronous, Isochronous, Synchronous
+
+    Supported clock speeds,
+
+        256, 512, 1024, 2048, 3072, 4096, 6144, 8192 frames per second
+
+    Clock speed can be selected through a command line parameter to the module.
+    Parameter name is "clock_speed" and the value passed should be a string.
+    For ex, clock_speed="256fs".
+    The default value if no parameter or invalid parameter passed is 3072fs.
+
+    Important Note: The selected clock speed should match with the value in INIC
+    Configuration.
+
+How To Build
+============
+
+    To cross compile the Module, you need to have toolchain for the specific
+    hardware platform. If Mostcore is not already integrated into the kernel,
+    HDM needs to be build with Mostcore(HDM Makefile expects mostcore diretory
+    to be present in the parent directory).
+
+    Command to build the Module,
+    make ARCH=<arch> CROSS_COMPILE=<cross compiler> KDIR=<kernel source dir>
+
+    Example for make (may differ from your configuration):
+    make ARCH=arm KDIR=~/imx6/sdk/ltib/rpm/BUILD/linux \
+       CROSS_COMPILE=/opt/freescale/usr/local/gcc-4.6.2-glibc-2.13\
+       -linaro-multilib-2011.12/fsl-linaro-toolchain/bin/arm-none-linux-gnueabi-
+
+    After build process completed, the current directory will contain all the
+    builded modules (mostcore.ko, dim2mx6q.ko, dim2hdm.ko).
+
+How To Run
+==========
+
+    Load Mostcore, Platform dependent module and hdm (using "insmod") in the
+    following order,
+
+        insmod mostcore.ko
+        insmod dim2mx6q.ko
+        insmod dim2hdm.ko
+
+Integration into BSP
+====================
+
+    The module was tested with Linux Kernel 3.0.35 and Mostcore 4.0.7 and also
+    with Linux Kernel 3.10.17 (with device tree subsystem).
+
+    This package also includes two platform device modules to support DIM2
+    interface on i.MX6Q platform. Modules source resides under the directory
+    "platform/". The modules allocate a new platform device with name
+    "medialb_dim2", provide I/O register base address and IRQ number.
+    They shall also provide the clock names through platform data.
+
+    To integrate the module into into any LinuxBSP you need to adapt
+    one of platform device drivers.
+
+    Note: platform device name supported by the driver is "medialb_dim2".
+
