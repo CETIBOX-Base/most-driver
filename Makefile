@@ -29,9 +29,9 @@ hdm_i2c-y := hdm-i2c/hdm_i2c.o
 hdm_i2c_mx6q-y := hdm-i2c/platform/plat_imx6q.o
 CFLAGS_hdm_i2c.o := -I$(src)/mostcore
 
-obj-hdm-$(CONFIG_HDM_DIM2) += hdm_dim2.o hdm_dim2_mx6q.o
+obj-hdm-$(CONFIG_HDM_DIM2) += hdm_dim2.o hdm_dim2_h2.o
 hdm_dim2-y := hdm-dim2/dim2_hdm.o hdm-dim2/dim2_hal.o hdm-dim2/dim2_sysfs.o
-hdm_dim2_mx6q-y := hdm-dim2/platform/dim2_mx6q.o
+hdm_dim2_h2-y := hdm-dim2/platform/dim2_h2_dt.o
 CFLAGS_dim2_hdm.o := -I$(src)/mostcore -I$(src)/aim-network
 
 obj-hdm-$(CONFIG_HDM_USB) += hdm_usb.o
