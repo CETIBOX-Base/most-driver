@@ -81,6 +81,7 @@ static int init(struct dim2_platform_data *pdata, void *io_base, int clk_speed)
 		writel(0x04, io_base + REG_PHYCTRL);
 	}
 
+	dev_info(pd.dev, "initialized successfully\n");
 	return  0;
 }
 
@@ -102,6 +103,8 @@ static int dim2_dt_probe(struct platform_device *pdev_dt)
 	int ret;
 
 	enum { AHB0_INT_IDX = 0 };
+
+	pr_debug("\n");
 
 	if (pd.pdev)
 		return -ENOMEM;
