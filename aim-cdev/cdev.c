@@ -421,7 +421,7 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 	int current_minor;
 
 	if ((!iface) || (!cfg) || (!parent) || (!name)) {
-		pr_info("Probing AIM with bad arguments");
+		pr_info("Probing AIM with bad arguments\n");
 		return -EINVAL;
 	}
 	channel = get_channel(iface, channel_id);
@@ -434,7 +434,7 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 
 	channel = kzalloc(sizeof(*channel), GFP_KERNEL);
 	if (!channel) {
-		pr_info("failed to alloc channel object\n");
+		pr_info("%s: failed to alloc channel object\n", name);
 		retval = -ENOMEM;
 		goto error_alloc_channel;
 	}
@@ -451,7 +451,7 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 	INIT_KFIFO(channel->fifo);
 	retval = kfifo_alloc(&channel->fifo, cfg->num_buffers, GFP_KERNEL);
 	if (retval) {
-		pr_info("failed to alloc channel kfifo");
+		pr_info("%s: failed to alloc channel kfifo\n", name);
 		goto error_alloc_kfifo;
 	}
 	init_waitqueue_head(&channel->wq);

@@ -210,8 +210,7 @@ static int startup_dim(struct platform_device *pdev)
 	}
 
 	if (dev->clk_speed == -1) {
-		pr_info("Bad or missing clock speed parameter,"
-			" using default value: 3072fs\n");
+		pr_info("Bad or missing clock speed parameter, using default value: 3072fs\n");
 		dev->clk_speed = CLK_3072FS;
 	} else
 		pr_info("Selected clock speed: %s\n", clock_speed);
@@ -369,8 +368,7 @@ static void service_done_flag(struct dim2_hdm *dev, int ch_idx)
 		spin_lock_irqsave(&dim_lock, flags);
 		if (list_empty(head)) {
 			spin_unlock_irqrestore(&dim_lock, flags);
-			pr_crit("hard error: started_mbo list is empty "
-				"whereas DIM2 has sent buffers\n");
+			pr_crit("hard error: started_mbo list is empty whereas DIM2 has sent buffers\n");
 			break;
 		}
 
@@ -575,8 +573,7 @@ static int configure_channel(struct most_interface *most_iface, int ch_idx,
 	case MOST_CH_ISOC_AVP:
 		new_size = DIM_NormIsocBufferSize(buf_size, sub_size);
 		if (new_size == 0) {
-			pr_err("%s: invalid sub-buffer size or "
-			       "too small buffer size\n", hdm_ch->name);
+			pr_err("%s: invalid sub-buffer size or too small buffer size\n", hdm_ch->name);
 			return -EINVAL;
 		}
 		ccfg->buffer_size = new_size;
@@ -589,8 +586,8 @@ static int configure_channel(struct most_interface *most_iface, int ch_idx,
 	case MOST_CH_SYNC:
 		new_size = DIM_NormSyncBufferSize(buf_size, sub_size);
 		if (new_size == 0) {
-			pr_err("%s: invalid sub-buffer size or "
-			       "too small buffer size\n", hdm_ch->name);
+			pr_err("%s: invalid sub-buffer size (%u) or too small buffer size (%u)\n",
+			       hdm_ch->name, sub_size, buf_size);
 			return -EINVAL;
 		}
 		ccfg->buffer_size = new_size;
