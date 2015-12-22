@@ -671,6 +671,8 @@ static void request_netinfo(struct most_interface *most_iface, int ch_idx)
 	struct mbo *mbo;
 	u8 *data;
 
+	pr_info("%s: requesting INIC mac\n", __func__);
+
 	if (dev->atx_idx < 0) {
 		pr_err("Async Tx Not initialized\n");
 		return;
@@ -691,6 +693,7 @@ static void request_netinfo(struct most_interface *most_iface, int ch_idx)
 	data[4] = 0x40; /* FMF (FIFO cmd msg - Triggers NAOverMDP) */
 
 	most_submit_mbo(mbo);
+	pr_info("%s: requested INIC mac\n", __func__);
 }
 
 /**

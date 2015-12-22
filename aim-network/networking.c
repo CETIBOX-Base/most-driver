@@ -178,6 +178,9 @@ static int most_nd_set_mac_address(struct net_device *dev, void *p)
 	 * It is still possible to change MTU using ip tools afterwards.
 	 */
 	dev->mtu = nd->is_mamac ? MAMAC_DATA_LEN : ETH_DATA_LEN;
+	pr_info("%s: %s, %pM\n", __func__,
+		nd->is_mamac ? "mamac" : "mep",
+		dev->dev_addr);
 
 	return 0;
 }
@@ -186,12 +189,14 @@ static int most_nd_open(struct net_device *dev)
 {
 	struct net_dev_context *nd = dev->ml_priv;
 
-	pr_info("open net device %s\n", dev->name);
+	pr_info("open net device %s...\n", dev->name);
 
 	BUG_ON(nd->dev != dev);
 
-	if (nd->channels_opened)
+	if (nd->channels_opened) {
+		pr_info("%s: channels are already open\n", __func__);
 		return -EFAULT;
+	}
 
 	BUG_ON(!nd->tx.linked || !nd->rx.linked);
 
@@ -212,6 +217,7 @@ static int most_nd_open(struct net_device *dev)
 		nd->link_stat = 1;
 		netif_wake_queue(dev);
 	} else {
+		pr_info("%s: requesting INIC mac\n", __func__);
 		nd->iface->request_netinfo(nd->iface, nd->tx.ch_id);
 	}
 
