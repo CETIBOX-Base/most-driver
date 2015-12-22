@@ -485,6 +485,7 @@ static int audio_set_hw_params(struct snd_pcm_hardware *pcm_hw,
 			       char *pcm_format,
 			       struct most_channel_config *cfg)
 {
+	const struct channel *channel = container_of(pcm_hw, struct channel, pcm_hardware);
 	pcm_hw->info = MOST_PCM_INFO;
 	pcm_hw->rates = SNDRV_PCM_RATE_48000;
 	pcm_hw->rate_min = 48000;
@@ -498,14 +499,14 @@ static int audio_set_hw_params(struct snd_pcm_hardware *pcm_hw,
 	if (!strcmp(pcm_format, "1x8")) {
 		if (cfg->subbuffer_size != 1)
 			goto error;
-		pr_info("PCM format is 8-bit mono\n");
+		pr_info("%s: PCM format is 8-bit mono\n", channel->card->id);
 		pcm_hw->channels_min = 1;
 		pcm_hw->channels_max = 1;
 		pcm_hw->formats = SNDRV_PCM_FMTBIT_S8;
 	} else if (!strcmp(pcm_format, "1x16")) {
 		if (cfg->subbuffer_size != 2)
 			goto error;
-		pr_info("PCM format is 16-bit mono\n");
+		pr_info("%s: PCM format is 16-bit mono\n", channel->card->id);
 		pcm_hw->channels_min = 1;
 		pcm_hw->channels_max = 1;
 		pcm_hw->formats = SNDRV_PCM_FMTBIT_S16_LE |
@@ -513,7 +514,7 @@ static int audio_set_hw_params(struct snd_pcm_hardware *pcm_hw,
 	} else if (!strcmp(pcm_format, "2x16")) {
 		if (cfg->subbuffer_size != 4)
 			goto error;
-		pr_info("PCM format is 16-bit stereo\n");
+		pr_info("%s: PCM format is 16-bit stereo\n", channel->card->id);
 		pcm_hw->channels_min = 2;
 		pcm_hw->channels_max = 2;
 		pcm_hw->formats = SNDRV_PCM_FMTBIT_S16_LE |
@@ -521,7 +522,7 @@ static int audio_set_hw_params(struct snd_pcm_hardware *pcm_hw,
 	} else if (!strcmp(pcm_format, "2x24")) {
 		if (cfg->subbuffer_size != 6)
 			goto error;
-		pr_info("PCM format is 24-bit stereo\n");
+		pr_info("%s: PCM format is 24-bit stereo\n", channel->card->id);
 		pcm_hw->channels_min = 2;
 		pcm_hw->channels_max = 2;
 		pcm_hw->formats = SNDRV_PCM_FMTBIT_S24_3LE |
@@ -529,7 +530,7 @@ static int audio_set_hw_params(struct snd_pcm_hardware *pcm_hw,
 	} else if (!strcmp(pcm_format, "2x32")) {
 		if (cfg->subbuffer_size != 8)
 			goto error;
-		pr_info("PCM format is 32-bit stereo\n");
+		pr_info("%s: PCM format is 32-bit stereo\n", channel->card->id);
 		pcm_hw->channels_min = 2;
 		pcm_hw->channels_max = 2;
 		pcm_hw->formats = SNDRV_PCM_FMTBIT_S32_LE |
@@ -537,18 +538,18 @@ static int audio_set_hw_params(struct snd_pcm_hardware *pcm_hw,
 	} else if (!strcmp(pcm_format, "6x16")) {
 		if (cfg->subbuffer_size != 12)
 			goto error;
-		pr_info("PCM format is 16-bit 5.1 multi channel\n");
+		pr_info("%s: PCM format is 16-bit 5.1 multi channel\n", channel->card->id);
 		pcm_hw->channels_min = 6;
 		pcm_hw->channels_max = 6;
 		pcm_hw->formats = SNDRV_PCM_FMTBIT_S16_LE |
 				  SNDRV_PCM_FMTBIT_S16_BE;
 	} else {
-		pr_err("PCM format %s not supported\n", pcm_format);
+		pr_err("%s: PCM format %s not supported\n", channel->card->id, pcm_format);
 		return -EIO;
 	}
 	return 0;
 error:
-	pr_err("Audio resolution doesn't fit subbuffer size\n");
+	pr_err("%s: Audio resolution doesn't fit subbuffer size\n", channel->card->id);
 	return -EINVAL;
 }
 
