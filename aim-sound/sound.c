@@ -503,6 +503,14 @@ static int audio_set_hw_params(struct snd_pcm_hardware *pcm_hw,
 		pcm_hw->channels_min = 1;
 		pcm_hw->channels_max = 1;
 		pcm_hw->formats = SNDRV_PCM_FMTBIT_S8;
+	} else if (!strcmp(pcm_format, "1x16")) {
+		if (cfg->subbuffer_size != 2)
+			goto error;
+		pr_info("PCM format is 16-bit mono\n");
+		pcm_hw->channels_min = 1;
+		pcm_hw->channels_max = 1;
+		pcm_hw->formats = SNDRV_PCM_FMTBIT_S16_LE |
+				  SNDRV_PCM_FMTBIT_S16_BE;
 	} else if (!strcmp(pcm_format, "2x16")) {
 		if (cfg->subbuffer_size != 4)
 			goto error;
