@@ -207,6 +207,10 @@ static int most_nd_open(struct net_device *dev)
 	if (nd->is_mamac) {
 		nd->link_stat = 1;
 		netif_wake_queue(dev);
+	} else if (is_valid_ether_addr(dev->dev_addr)) {
+		netdev_info(dev, "INIC MAC %pM\n", dev->dev_addr);
+		nd->link_stat = 1;
+		netif_wake_queue(dev);
 	} else {
 		nd->iface->request_netinfo(nd->iface, nd->tx.ch_id);
 	}
