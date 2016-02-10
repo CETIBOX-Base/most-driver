@@ -279,7 +279,7 @@ static int pcm_open(struct snd_pcm_substream *substream)
 	channel->substream = substream;
 
 	if (cfg->direction == MOST_CH_TX) {
-		channel->playback_task = kthread_run(&playback_thread, channel,
+		channel->playback_task = kthread_run(playback_thread, channel,
 						     "most_audio_playback");
 		if (IS_ERR(channel->playback_task)) {
 			pr_err("Couldn't start thread\n");
@@ -469,7 +469,6 @@ static struct snd_pcm_ops pcm_ops = {
 	.page       = snd_pcm_lib_get_vmalloc_page,
 	.mmap       = snd_pcm_lib_mmap_vmalloc,
 };
-
 
 static int split_arg_list(char *buf, char **card_name, char **pcm_format)
 {

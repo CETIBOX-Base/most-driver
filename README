@@ -1,4 +1,4 @@
-This is the version 1.3.5 of the MOST Linux Driver.
+This is the version 1.3.6 of the MOST Linux Driver.
 
 The package consists of the following components:
   mostcore
@@ -32,6 +32,19 @@ To see make options of the package, run
 
 HISTORY OF CHANGES
 ==================
+
+1.3.6
+-----
+
+- core: fixed race between probe_channel and most_start_channel
+- core: fixed potential minor number leak
+- core: fixed issues by removing the link to channel
+- aim-cdev: fixed races by closing the channels
+- aim-cdev: fixed potential MBO leak
+- aim-cdev: poll: fixed issue with waking the sleeping process
+- aim-network: added rx_dropped statistics
+- made diverse code improvements
+
 
 1.3.5
 -----

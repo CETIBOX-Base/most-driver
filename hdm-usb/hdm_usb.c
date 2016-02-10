@@ -76,6 +76,7 @@ struct buf_anchor {
 	struct list_head list;
 	struct completion urb_compl;
 };
+
 #define to_buf_anchor(w) container_of(w, struct buf_anchor, clear_work_obj)
 
 /**
@@ -87,6 +88,7 @@ struct most_dci_obj {
 	struct kobject kobj;
 	struct usb_device *usb_device;
 };
+
 #define to_dci_obj(p) container_of(p, struct most_dci_obj, kobj)
 
 /**
@@ -130,6 +132,7 @@ struct most_dev {
 	struct timer_list link_stat_timer;
 	struct work_struct poll_work_obj;
 };
+
 #define to_mdev(d) container_of(d, struct most_dev, iface)
 #define to_mdev_from_work(w) container_of(w, struct most_dev, poll_work_obj)
 
@@ -197,7 +200,8 @@ static void free_anchored_buffers(struct most_dev *mdev, unsigned int channel)
 	unsigned long flags;
 
 	spin_lock_irqsave(&mdev->anchor_list_lock[channel], flags);
-	list_for_each_entry_safe(anchor, tmp, &mdev->anchor_list[channel], list) {
+	list_for_each_entry_safe(anchor, tmp, &mdev->anchor_list[channel],
+				 list) {
 		struct urb *urb = anchor->urb;
 
 		spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
@@ -244,10 +248,11 @@ static unsigned int get_stream_frame_size(struct most_channel_config *cfg)
 		if (cfg->packets_per_xact == 0) {
 			pr_warn("Misconfig: Packets per XACT zero\n");
 			frame_size = 0;
-		} else if (cfg->packets_per_xact == 0xFF)
+		} else if (cfg->packets_per_xact == 0xFF) {
 			frame_size = (USB_MTU / sub_size) * sub_size;
-		else
+		} else {
 			frame_size = cfg->packets_per_xact * sub_size;
+		}
 		break;
 	default:
 		pr_warn("Query frame size of non-streaming channel\n");
@@ -285,7 +290,7 @@ static int hdm_poison_channel(struct most_interface *iface, int channel)
 
 	mutex_lock(&mdev->io_mutex);
 	free_anchored_buffers(mdev, channel);
-	if (mdev->padding_active[channel] == true)
+	if (mdev->padding_active[channel])
 		mdev->padding_active[channel] = false;
 
 	if (mdev->conf[channel].data_type == MOST_CH_ASYNC) {
@@ -342,7 +347,8 @@ static int hdm_add_padding(struct most_dev *mdev, int channel, struct mbo *mbo)
  * This takes the INIC hardware specific padding bytes off a streaming
  * channel's buffer.
  */
-static int hdm_remove_padding(struct most_dev *mdev, int channel, struct mbo *mbo)
+static int hdm_remove_padding(struct most_dev *mdev, int channel,
+			      struct mbo *mbo)
 {
 	unsigned int j, num_frames, frame_size;
 	struct most_channel_config *const conf = &mdev->conf[channel];
@@ -388,7 +394,7 @@ static void hdm_write_completion(struct urb *urb)
 	dev = &mdev->usb_device->dev;
 
 	if ((urb->status == -ENOENT) || (urb->status == -ECONNRESET) ||
-	    (mdev->is_channel_healthy[channel] == false)) {
+	    (!mdev->is_channel_healthy[channel])) {
 		complete(&anchor->urb_compl);
 		return;
 	}
@@ -430,7 +436,7 @@ static void hdm_write_completion(struct urb *urb)
 }
 
 /**
- * hdm_read_completion - completion funciton for submitted Rx URBs
+ * hdm_read_completion - completion function for submitted Rx URBs
  * @urb: the URB that has been completed
  *
  * This checks the status of the completed URB. In case the URB has been
@@ -545,7 +551,6 @@ static void hdm_read_completion(struct urb *urb)
 	struct device *dev;
 	unsigned long flags;
 	unsigned int channel;
-	struct most_channel_config *conf;
 
 	mbo = urb->context;
 	anchor = mbo->priv;
@@ -554,12 +559,10 @@ static void hdm_read_completion(struct urb *urb)
 	dev = &mdev->usb_device->dev;
 
 	if ((urb->status == -ENOENT) || (urb->status == -ECONNRESET) ||
-	    (mdev->is_channel_healthy[channel] == false)) {
+	    (!mdev->is_channel_healthy[channel])) {
 		complete(&anchor->urb_compl);
 		return;
 	}
-
-	conf = &mdev->conf[channel];
 
 	if (unlikely(urb->status && !(urb->status == -ENOENT ||
 				      urb->status == -ECONNRESET ||
@@ -585,7 +588,7 @@ static void hdm_read_completion(struct urb *urb)
 		}
 	} else {
 		mbo->processed_length = urb->actual_length;
-		if (mdev->padding_active[channel] == false) {
+		if (!mdev->padding_active[channel]) {
 			mbo->status = MBO_SUCCESS;
 		} else {
 			if (hdm_remove_padding(mdev, channel, mbo)) {
@@ -621,7 +624,8 @@ static void hdm_read_completion(struct urb *urb)
  *
  * Context: Could in _some_ cases be interrupt!
  */
-static int hdm_enqueue(struct most_interface *iface, int channel, struct mbo *mbo)
+static int hdm_enqueue(struct most_interface *iface, int channel,
+		       struct mbo *mbo)
 {
 	struct most_dev *mdev;
 	struct buf_anchor *anchor;
@@ -665,7 +669,7 @@ static int hdm_enqueue(struct most_interface *iface, int channel, struct mbo *mb
 	list_add_tail(&anchor->list, &mdev->anchor_list[channel]);
 	spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
 
-	if ((mdev->padding_active[channel] == true) &&
+	if ((mdev->padding_active[channel]) &&
 	    (conf->direction & MOST_CH_TX))
 		if (hdm_add_padding(mdev, channel, mbo)) {
 			retval = -EIO;
@@ -769,8 +773,7 @@ static int hdm_configure_channel(struct most_interface *iface, int channel,
 		tmp_val = conf->buffer_size / frame_size;
 		conf->buffer_size = tmp_val * frame_size;
 		dev_notice(dev,
-			   "Channel %d - rouding buffer size to %d bytes, "
-			   "channel config says %d bytes\n",
+			   "Channel %d - rounding buffer size to %d bytes, channel config says %d bytes\n",
 			   channel,
 			   conf->buffer_size,
 			   temp_size);
@@ -893,7 +896,7 @@ static void wq_netinfo(struct work_struct *wq_obj)
 	for (i = 0; i < 6; i++)
 		prev_hw_addr[i] = mdev->hw_addr[i];
 
-	if (0 > hdm_update_netinfo(mdev))
+	if (hdm_update_netinfo(mdev) < 0)
 		return;
 	if ((prev_link_stat != mdev->link_stat) ||
 	    (prev_hw_addr[0] != mdev->hw_addr[0]) ||
@@ -983,8 +986,8 @@ struct most_dci_attribute {
 			 const char *buf,
 			 size_t count);
 };
-#define to_dci_attr(a) container_of(a, struct most_dci_attribute, attr)
 
+#define to_dci_attr(a) container_of(a, struct most_dci_attribute, attr)
 
 /**
  * dci_attr_show - show function for dci object
@@ -1235,11 +1238,10 @@ hdm_probe(struct usb_interface *interface, const struct usb_device_id *id)
 	num_endpoints = usb_iface_desc->desc.bNumEndpoints;
 	mutex_init(&mdev->io_mutex);
 	INIT_WORK(&mdev->poll_work_obj, wq_netinfo);
-	init_timer(&mdev->link_stat_timer);
+	setup_timer(&mdev->link_stat_timer, link_stat_timer_handler,
+		    (unsigned long)mdev);
 
 	mdev->usb_device = usb_dev;
-	mdev->link_stat_timer.function = link_stat_timer_handler;
-	mdev->link_stat_timer.data = (unsigned long)mdev;
 	mdev->link_stat_timer.expires = jiffies + (2 * HZ);
 
 	mdev->iface.mod = hdm_usb_fops.owner;
@@ -1413,7 +1415,7 @@ static int __init hdm_usb_init(void)
 		return -EIO;
 	}
 	schedule_usb_work = create_workqueue("hdmu_work");
-	if (schedule_usb_work == NULL) {
+	if (!schedule_usb_work) {
 		pr_err("could not create workqueue\n");
 		usb_deregister(&hdm_usb);
 		return -ENOMEM;
