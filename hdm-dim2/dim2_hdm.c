@@ -238,7 +238,9 @@ static int try_start_dim_transfer(struct hdm_channel *hdm_ch)
 	struct dim_ch_state_t st;
 
 	BUG_ON(!hdm_ch);
-	BUG_ON(!hdm_ch->is_initialized);
+	WARN_ON(!hdm_ch->is_initialized);
+	if (!hdm_ch->is_initialized)
+		return -EAGAIN;
 
 	spin_lock_irqsave(&dim_lock, flags);
 	if (list_empty(head)) {
