@@ -431,7 +431,7 @@ static int aim_register_videodev(struct most_video_dev *mdev)
 	int retval = -ENOMEM;
 	int ret;
 
-	pr_info("aim_register_videodev()\n");
+	pr_info("aim_register_videodev(%s)\n", mdev->v4l2_dev.name);
 
 	init_waitqueue_head(&mdev->wait_data);
 
@@ -444,7 +444,7 @@ static int aim_register_videodev(struct most_video_dev *mdev)
 	*mdev->vdev = aim_videodev_template;
 	mdev->vdev->v4l2_dev = &mdev->v4l2_dev;
 	mdev->vdev->lock = &mdev->lock;
-	strcpy(mdev->vdev->name, "most v4l2 aim video");
+	strcpy(mdev->vdev->name, mdev->v4l2_dev.name);
 
 	/* Register the v4l2 device */
 	video_set_drvdata(mdev->vdev, mdev);
@@ -485,7 +485,7 @@ static int aim_probe_channel(struct most_interface *iface, int channel_idx,
 	int ret;
 	struct most_video_dev *mdev = get_aim_dev(iface, channel_idx);
 
-	pr_info("aim_probe_channel()\n");
+	pr_info("aim_probe_channel(%d, %s)\n", channel_idx, name);
 
 	if (mdev) {
 		pr_err("channel already linked\n");
@@ -516,8 +516,7 @@ static int aim_probe_channel(struct most_interface *iface, int channel_idx,
 	mdev->v4l2_dev.release = aim_v4l2_dev_release;
 
 	/* Create the v4l2_device */
-	strlcpy(mdev->v4l2_dev.name, "most_video_device",
-		sizeof(mdev->v4l2_dev.name));
+	strlcpy(mdev->v4l2_dev.name, name, sizeof(mdev->v4l2_dev.name));
 	ret = v4l2_device_register(NULL, &mdev->v4l2_dev);
 	if (ret) {
 		pr_err("v4l2_device_register() failed\n");
