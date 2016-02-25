@@ -338,7 +338,8 @@ static void service_done_flag(struct dim2_hdm *dev, int ch_idx)
 	u8 *data;
 
 	BUG_ON(!hdm_ch);
-	BUG_ON(!hdm_ch->is_initialized);
+	if (!hdm_ch->is_initialized)
+		return;
 
 	spin_lock_irqsave(&dim_lock, flags);
 
