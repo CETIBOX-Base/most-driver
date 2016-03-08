@@ -66,6 +66,9 @@ struct most_c_obj {
 	struct list_head trash_fifo;
 	struct task_struct *hdm_enqueue_task;
 	wait_queue_head_t hdm_fifo_wq;
+	struct {
+		ulong bytes, pkts;
+	} stats;
 };
 
 #define to_c_obj(d) container_of(d, struct most_c_obj, kobj)
@@ -478,6 +481,30 @@ static ssize_t store_set_packets_per_xact(struct most_c_obj *c,
 	return count;
 }
 
+static ssize_t show_statistics(struct most_c_obj *c,
+			       struct most_c_attr *attr,
+			       char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%lu %lu\n", c->stats.bytes, c->stats.pkts);
+}
+
+static ssize_t store_statistics(struct most_c_obj *c,
+				struct most_c_attr *attr,
+				const char *buf,
+				size_t count)
+{
+	ulong v;
+	int ret = kstrtoul(buf, 0, &v);
+
+	if (ret)
+		return ret;
+	if (v != 0ul)
+		return -EFBIG;
+	c->stats.bytes = 0;
+	c->stats.pkts = 0;
+	return count;
+}
+
 #define create_channel_attribute(value) \
 	static MOST_CHNL_ATTR(value, S_IRUGO | S_IWUSR, \
 			      show_##value, \
@@ -489,6 +516,7 @@ create_channel_attribute(set_direction);
 create_channel_attribute(set_datatype);
 create_channel_attribute(set_subbuffer_size);
 create_channel_attribute(set_packets_per_xact);
+create_channel_attribute(statistics);
 
 /**
  * most_channel_def_attrs - array of default attributes of channel object
@@ -507,6 +535,7 @@ static struct attribute *most_channel_def_attrs[] = {
 	&most_chnl_attr_set_subbuffer_size.attr,
 	&most_chnl_attr_set_packets_per_xact.attr,
 	&most_chnl_attr_channel_starving.attr,
+	&most_chnl_attr_statistics.attr,
 	NULL,
 };
 
@@ -1214,6 +1243,8 @@ static void arm_mbo(struct mbo *mbo)
 		return;
 	}
 
+	c->stats.pkts++;
+	c->stats.bytes += mbo->buffer_length;
 	spin_lock_irqsave(&c->fifo_lock, flags);
 	++*mbo->num_buffers_ptr;
 	list_add_tail(&mbo->list, &c->fifo);
@@ -1466,6 +1497,9 @@ static void most_read_completion(struct mbo *mbo)
 		pr_info("WARN: rx device out of buffers\n");
 		c->is_starving = 1;
 	}
+
+	c->stats.pkts++;
+	c->stats.bytes += mbo->processed_length;
 
 	if (c->aim0.refs && c->aim0.ptr->rx_completion &&
 	    c->aim0.ptr->rx_completion(mbo) == 0)
