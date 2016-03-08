@@ -69,6 +69,9 @@ struct most_c_obj {
 	struct list_head trash_fifo;
 	struct task_struct *hdm_enqueue_task;
 	wait_queue_head_t hdm_fifo_wq;
+	struct {
+		ulong bytes, pkts;
+	} stats;
 };
 
 #define to_c_obj(d) container_of(d, struct most_c_obj, kobj)
@@ -476,6 +479,30 @@ static ssize_t set_packets_per_xact_store(struct most_c_obj *c,
 	return count;
 }
 
+static ssize_t statistics_show(struct most_c_obj *c,
+			       struct most_c_attr *attr,
+			       char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%lu %lu\n", c->stats.bytes, c->stats.pkts);
+}
+
+static ssize_t statistics_store(struct most_c_obj *c,
+				struct most_c_attr *attr,
+				const char *buf,
+				size_t count)
+{
+	ulong v;
+	int ret = kstrtoul(buf, 0, &v);
+
+	if (ret)
+		return ret;
+	if (v != 0ul)
+		return -EFBIG;
+	c->stats.bytes = 0;
+	c->stats.pkts = 0;
+	return count;
+}
+
 static struct most_c_attr most_c_attrs[] = {
 	__ATTR_RO(available_directions),
 	__ATTR_RO(available_datatypes),
@@ -490,6 +517,7 @@ static struct most_c_attr most_c_attrs[] = {
 	__ATTR_RW(set_datatype),
 	__ATTR_RW(set_subbuffer_size),
 	__ATTR_RW(set_packets_per_xact),
+	__ATTR_RW(statistics),
 };
 
 /**
@@ -509,6 +537,7 @@ static struct attribute *most_channel_def_attrs[] = {
 	&most_c_attrs[10].attr,
 	&most_c_attrs[11].attr,
 	&most_c_attrs[12].attr,
+	&most_c_attrs[13].attr,
 	NULL,
 };
 
@@ -1242,6 +1271,8 @@ static void arm_mbo(struct mbo *mbo)
 		return;
 	}
 
+	c->stats.pkts++;
+	c->stats.bytes += mbo->buffer_length;
 	spin_lock_irqsave(&c->fifo_lock, flags);
 	++*mbo->num_buffers_ptr;
 	list_add_tail(&mbo->list, &c->fifo);
@@ -1488,6 +1519,9 @@ static void most_read_completion(struct mbo *mbo)
 
 	if (atomic_sub_and_test(1, &c->mbo_nq_level))
 		c->is_starving = 1;
+
+	c->stats.pkts++;
+	c->stats.bytes += mbo->processed_length;
 
 	if (c->aim0.refs && c->aim0.ptr->rx_completion &&
 	    c->aim0.ptr->rx_completion(mbo) == 0)
