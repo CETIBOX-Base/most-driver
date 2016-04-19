@@ -430,7 +430,7 @@ static int aim_rx_data(struct mbo *mbo)
 	u32 len = mbo->processed_length;
 	struct sk_buff *skb;
 	struct net_device *dev;
-	typeof(skb->len) skb_len;
+	unsigned int skb_len;
 
 	nd = get_net_dev_context(mbo->ifp);
 	if (!nd || !nd->channels_opened || nd->rx.ch_id != mbo->hdm_channel_id)

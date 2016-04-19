@@ -183,10 +183,10 @@ static int aim_close(struct inode *inode, struct file *filp)
 static ssize_t aim_write(struct file *filp, const char __user *buf,
 			 size_t count, loff_t *offset)
 {
+	int ret;
 	size_t actual_len;
 	size_t max_len;
-	ssize_t retval;
-	struct mbo *mbo;
+	struct mbo *mbo = NULL;
 	struct aim_channel *c = filp->private_data;
 
 	mutex_lock(&c->io_mutex);
@@ -201,24 +201,30 @@ static ssize_t aim_write(struct file *filp, const char __user *buf,
 	}
 
 	if (unlikely(!c->dev)) {
-		mutex_unlock(&c->io_mutex);
-		return -EPIPE;
+		ret = -EPIPE;
+		goto unlock;
 	}
 
 	max_len = c->cfg->buffer_size;
 	actual_len = min(count, max_len);
 	mbo->buffer_length = actual_len;
 
-	retval = copy_from_user(mbo->virt_address, buf, mbo->buffer_length);
-	if (retval) {
-		most_put_mbo(mbo);
-		mutex_unlock(&c->io_mutex);
-		return -EIO;
+	if (copy_from_user(mbo->virt_address, buf, mbo->buffer_length)) {
+		ret = -EFAULT;
+		goto put_mbo;
 	}
 
-	most_submit_mbo(mbo);
+	ret = most_submit_mbo(mbo);
+	if (ret)
+		goto put_mbo;
+
 	mutex_unlock(&c->io_mutex);
-	return actual_len - retval;
+	return actual_len;
+put_mbo:
+	most_put_mbo(mbo);
+unlock:
+	mutex_unlock(&c->io_mutex);
+	return ret;
 }
 
 /**

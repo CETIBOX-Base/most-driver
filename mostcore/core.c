@@ -33,7 +33,7 @@
 #define STRING_SIZE	80
 
 static struct class *most_class;
-static struct device *class_glue_dir;
+static struct device *core_dev;
 static struct ida mdev_id;
 static int dummy_num_buffers;
 
@@ -78,6 +78,14 @@ struct most_inst_obj {
 	struct kobject kobj;
 	struct list_head list;
 };
+
+static const struct {
+	int most_ch_data_type;
+	char *name;
+} ch_data_type[] = { { MOST_CH_CONTROL, "control\n" },
+	{ MOST_CH_ASYNC, "async\n" },
+	{ MOST_CH_SYNC, "sync\n" },
+	{ MOST_CH_ISOC_AVP, "isoc_avp\n"} };
 
 #define to_inst_obj(d) container_of(d, struct most_inst_obj, kobj)
 
@@ -409,14 +417,12 @@ static ssize_t show_set_datatype(struct most_c_obj *c,
 				 struct most_c_attr *attr,
 				 char *buf)
 {
-	if (c->cfg.data_type & MOST_CH_CONTROL)
-		return snprintf(buf, PAGE_SIZE, "control\n");
-	else if (c->cfg.data_type & MOST_CH_ASYNC)
-		return snprintf(buf, PAGE_SIZE, "async\n");
-	else if (c->cfg.data_type & MOST_CH_SYNC)
-		return snprintf(buf, PAGE_SIZE, "sync\n");
-	else if (c->cfg.data_type & MOST_CH_ISOC_AVP)
-		return snprintf(buf, PAGE_SIZE, "isoc_avp\n");
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ch_data_type); i++) {
+		if (c->cfg.data_type & ch_data_type[i].most_ch_data_type)
+			return snprintf(buf, PAGE_SIZE, ch_data_type[i].name);
+	}
 	return snprintf(buf, PAGE_SIZE, "unconfigured\n");
 }
 
@@ -425,15 +431,16 @@ static ssize_t store_set_datatype(struct most_c_obj *c,
 				  const char *buf,
 				  size_t count)
 {
-	if (!strcmp(buf, "control\n")) {
-		c->cfg.data_type = MOST_CH_CONTROL;
-	} else if (!strcmp(buf, "async\n")) {
-		c->cfg.data_type = MOST_CH_ASYNC;
-	} else if (!strcmp(buf, "sync\n")) {
-		c->cfg.data_type = MOST_CH_SYNC;
-	} else if (!strcmp(buf, "isoc_avp\n")) {
-		c->cfg.data_type = MOST_CH_ISOC_AVP;
-	} else {
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(ch_data_type); i++) {
+		if (!strcmp(buf, ch_data_type[i].name)) {
+			c->cfg.data_type = ch_data_type[i].most_ch_data_type;
+			break;
+		}
+	}
+
+	if (i == ARRAY_SIZE(ch_data_type)) {
 		pr_info("WARN: invalid attribute settings\n");
 		return -EINVAL;
 	}
@@ -1364,7 +1371,7 @@ int channel_has_mbo(struct most_interface *iface, int id, struct most_aim *aim)
 	if (c->aim0.refs && c->aim1.refs &&
 	    ((aim == c->aim0.ptr && c->aim0.num_buffers <= 0) ||
 	     (aim == c->aim1.ptr && c->aim1.num_buffers <= 0)))
-		return false;
+		return 0;
 
 	spin_lock_irqsave(&c->fifo_lock, flags);
 	empty = list_empty(&c->fifo);
@@ -1462,10 +1469,8 @@ static void most_read_completion(struct mbo *mbo)
 		return;
 	}
 
-	if (atomic_sub_and_test(1, &c->mbo_nq_level)) {
-		pr_info("WARN: rx device out of buffers\n");
+	if (atomic_sub_and_test(1, &c->mbo_nq_level))
 		c->is_starving = 1;
-	}
 
 	if (c->aim0.refs && c->aim0.ptr->rx_completion &&
 	    c->aim0.ptr->rx_completion(mbo) == 0)
@@ -1867,18 +1872,18 @@ static int __init most_init(void)
 		goto exit_class;
 	}
 
-	class_glue_dir =
-		device_create(most_class, NULL, 0, NULL, "mostcore");
-	if (!class_glue_dir)
+	core_dev = device_create(most_class, NULL, 0, NULL, "mostcore");
+	if (IS_ERR(core_dev))
 		goto exit_driver;
 
-	most_aim_kset =
-		kset_create_and_add("aims", NULL, &class_glue_dir->kobj);
+	if (dma_set_coherent_mask(core_dev, (u64)DMA_BIT_MASK(32)))
+		goto exit_class_container;
+
+	most_aim_kset = kset_create_and_add("aims", NULL, &core_dev->kobj);
 	if (!most_aim_kset)
 		goto exit_class_container;
 
-	most_inst_kset =
-		kset_create_and_add("devices", NULL, &class_glue_dir->kobj);
+	most_inst_kset = kset_create_and_add("devices", NULL, &core_dev->kobj);
 	if (!most_inst_kset)
 		goto exit_driver_kset;
 
