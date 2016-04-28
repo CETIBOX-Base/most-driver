@@ -282,6 +282,7 @@ static unsigned int get_stream_frame_size(struct most_channel_config *cfg)
 static int hdm_poison_channel(struct most_interface *iface, int channel)
 {
 	struct most_dev *mdev;
+	unsigned long flags;
 
 	mdev = to_mdev(iface);
 	if (unlikely(!iface)) {
@@ -293,7 +294,9 @@ static int hdm_poison_channel(struct most_interface *iface, int channel)
 		return -ECHRNG;
 	}
 
+	spin_lock_irqsave(&mdev->anchor_list_lock[channel], flags);
 	mdev->is_channel_healthy[channel] = false;
+	spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
 
 	mutex_lock(&mdev->io_mutex);
 	free_anchored_buffers(mdev, channel, MBO_E_CLOSE);
@@ -430,6 +433,10 @@ static void hdm_write_completion(struct urb *urb)
 	}
 
 	spin_lock_irqsave(&mdev->anchor_list_lock[channel], flags);
+	if (!mdev->is_channel_healthy[channel]) {
+		spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
+		return;
+	}
 	list_del(&anchor->list);
 	spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
 	kfree(anchor);
@@ -597,7 +604,12 @@ static void hdm_read_completion(struct urb *urb)
 			mbo->status = MBO_E_INVAL;
 		}
 	}
+
 	spin_lock_irqsave(&mdev->anchor_list_lock[channel], flags);
+	if (!mdev->is_channel_healthy[channel]) {
+		spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
+		return;
+	}
 	list_del(&anchor->list);
 	spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
 	kfree(anchor);
