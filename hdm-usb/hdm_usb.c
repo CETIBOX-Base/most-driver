@@ -282,6 +282,7 @@ static unsigned int get_stream_frame_size(struct most_channel_config *cfg)
 static int hdm_poison_channel(struct most_interface *iface, int channel)
 {
 	struct most_dev *mdev;
+	unsigned long flags;
 
 	mdev = to_mdev(iface);
 	if (unlikely(!iface)) {
@@ -293,7 +294,9 @@ static int hdm_poison_channel(struct most_interface *iface, int channel)
 		return -ECHRNG;
 	}
 
+	spin_lock_irqsave(&mdev->anchor_list_lock[channel], flags);
 	mdev->is_channel_healthy[channel] = false;
+	spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
 
 	mutex_lock(&mdev->io_mutex);
 	free_anchored_buffers(mdev, channel, MBO_E_CLOSE);
@@ -411,7 +414,6 @@ static void hdm_write_completion(struct urb *urb)
 		switch (urb->status) {
 		case -EPIPE:
 			dev_warn(dev, "Broken OUT pipe detected\n");
-			most_stop_enqueue(&mdev->iface, channel);
 			mdev->is_channel_healthy[channel] = false;
 			mbo->status = MBO_E_INVAL;
 			INIT_WORK(&anchor->clear_work_obj, wq_clear_halt);
@@ -431,6 +433,10 @@ static void hdm_write_completion(struct urb *urb)
 	}
 
 	spin_lock_irqsave(&mdev->anchor_list_lock[channel], flags);
+	if (!mdev->is_channel_healthy[channel]) {
+		spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
+		return;
+	}
 	list_del(&anchor->list);
 	spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
 	kfree(anchor);
@@ -574,7 +580,6 @@ static void hdm_read_completion(struct urb *urb)
 		switch (urb->status) {
 		case -EPIPE:
 			dev_warn(dev, "Broken IN pipe detected\n");
-			most_stop_enqueue(&mdev->iface, channel);
 			mdev->is_channel_healthy[channel] = false;
 			mbo->status = MBO_E_INVAL;
 			INIT_WORK(&anchor->clear_work_obj, wq_clear_halt);
@@ -599,7 +604,12 @@ static void hdm_read_completion(struct urb *urb)
 			mbo->status = MBO_E_INVAL;
 		}
 	}
+
 	spin_lock_irqsave(&mdev->anchor_list_lock[channel], flags);
+	if (!mdev->is_channel_healthy[channel]) {
+		spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
+		return;
+	}
 	list_del(&anchor->list);
 	spin_unlock_irqrestore(&mdev->anchor_list_lock[channel], flags);
 	kfree(anchor);
@@ -929,6 +939,7 @@ static void wq_clear_halt(struct work_struct *wq_obj)
 	unsigned int channel = mbo->hdm_channel_id;
 
 	mutex_lock(&mdev->io_mutex);
+	most_stop_enqueue(&mdev->iface, channel);
 	free_anchored_buffers(mdev, channel, MBO_E_INVAL);
 	if (usb_clear_halt(dev, pipe))
 		dev_warn(&mdev->usb_device->dev, "Failed to reset endpoint.\n");

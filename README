@@ -1,4 +1,4 @@
-This is the version 1.3.9 of the MOST Linux Driver.
+This is the version 1.3.10 of the MOST Linux Driver.
 
 The package consists of the following components:
   mostcore
@@ -32,6 +32,19 @@ To see make options of the package, run
 
 HISTORY OF CHANGES
 ==================
+
+1.3.10
+-----
+
+- usb-hdm: fixed kernel crash possible by closing the USB channel while traffic
+- usb-hdm: fixed kernel crash due to the race in the handling of the endpoint
+  stall condition
+- dim2-hdm: fixed kernel freeze possible when reusing the dim2 channel
+- v4l2-aim: fixed kernel crash due to interrupt unsafe spinlocks
+- v4l2-aim: assigned different names for the different devices (video devices
+  get the hardware dependent names and the V4L devices names may be set
+  using the driver configuration which is similar to the cdev-aim)
+
 
 1.3.9
 -----
