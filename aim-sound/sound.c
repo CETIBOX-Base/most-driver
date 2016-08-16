@@ -608,8 +608,8 @@ static int audio_probe_channel(struct most_interface *iface, int channel_id,
 		return ret;
 	}
 
-	ret = snd_card_create(-1, card_name, THIS_MODULE,
-			      sizeof(*channel), &card);
+	//ret = snd_card_create(-1, card_name, THIS_MODULE, sizeof(*channel), &card);
+	ret = snd_card_new(NULL, -1, card_name, THIS_MODULE, sizeof(*channel), &card);
 	if (ret < 0)
 		return ret;
 

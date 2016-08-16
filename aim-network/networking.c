@@ -24,28 +24,6 @@
 #include "mostcore.h"
 #include "networking.h"
 
-/**
- * ether_addr_copy - Copy an Ethernet address
- * @dst: Pointer to a six-byte array Ethernet address destination
- * @src: Pointer to a six-byte array Ethernet address source
- *
- * Please note: dst & src must both be aligned to u16.
- */
-static inline void ether_addr_copy(u8 *dst, const u8 *src)
-{
-#if defined(CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS)
-	*(u32 *)dst = *(const u32 *)src;
-	*(u16 *)(dst + 4) = *(const u16 *)(src + 4);
-#else
-	u16 *a = (u16 *)dst;
-	const u16 *b = (const u16 *)src;
-
-	a[0] = b[0];
-	a[1] = b[1];
-	a[2] = b[2];
-#endif
-}
-
 #define MEP_HDR_LEN 8
 #define MDP_HDR_LEN 16
 #define MAMAC_DATA_LEN (1024 - MDP_HDR_LEN)
@@ -373,7 +351,11 @@ static int aim_probe_channel(struct most_interface *iface, int channel_idx,
 
 	if (nd->tx.linked || nd->rx.linked) {
 		struct net_device *dev =
-			alloc_netdev(0, "meth%d", most_nd_setup);
+			alloc_netdev(0, "meth%d",
+#ifdef NET_NAME_PREDICTABLE
+				     NET_NAME_PREDICTABLE,
+#endif
+				     most_nd_setup);
 
 		if (!dev) {
 			pr_err("no memory for net_device\n");
