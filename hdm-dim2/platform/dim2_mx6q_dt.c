@@ -55,6 +55,7 @@ static struct dim2_platform_data pd_callbacks = {
 
 static int init(struct dim2_platform_data *pdata, void *io_base, int clk_speed)
 {
+	pr_info("init for i.MX6q\n");
 	pd.clk_mlb3p = clk_get(pd.dev, "mlb");
 	if (IS_ERR_OR_NULL(pd.clk_mlb3p)) {
 		pr_err("unable to get mlb clock\n");
@@ -76,6 +77,7 @@ static int init(struct dim2_platform_data *pdata, void *io_base, int clk_speed)
 		writel(MLBPC1_VAL, io_base + REG_MLBPC1);
 		clk_prepare_enable(pd.clk_mlb6p);
 	}
+	pr_info("clocks: 3pin %p 6pin %p\n", pd.clk_mlb3p, pd.clk_mlb6p);
 
 	return  0;
 }
@@ -176,7 +178,7 @@ MODULE_DEVICE_TABLE(of, dim2_imx_dt_ids);
 
 static int __init mlb_platform_init(void)
 {
-	pr_info("mlb_platform_init()\n");
+	pr_info("mlb_platform_init\n");
 	return platform_driver_register(&dim2_driver);
 }
 
