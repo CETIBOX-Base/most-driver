@@ -1,0 +1,211 @@
+
+                 I2S Hardware Dependent Module(HDM) - 0.5.0
+                 ==========================================
+
+History of Changes
+==================
+    0.5.0  Reworked interrupt handling, changed sysfs values to ASCII
+    0.4.0  Moved user configurable parameters from debugfs to standard mostcore path
+    0.3.1  Improved compatibility with mostcore API
+    0.3.0  Adapted for Mostcore version 4.0.7
+    0.2.0  Adapted for Mostcore version 4.0.4
+    0.1.0  Initial Internal Release (Tested with OS81110)
+
+Module Description
+==================
+
+    The HDM provides access to I2S Interface through Mostcore.
+    It registers the I2S as a MOST interface to Mostcore and send/receive
+    packets from/to Mostcore.
+
+    This version contains the following files,
+
+        1.README         - This file
+        2.Makefile       - Kernel modules make file
+        3.i2s_hdm.c      - HDM
+        4.i2s_hdm.h      - Header file
+        3.i2s_clkgen.c   - I2S Clockgen Configuration
+        4.i2s_hdm.h      - Header file
+        5.configure.sh   - A script to configure I2S parameters
+
+
+    Current implementation supports up to 8 I2S channels at any given time.
+
+How To Build
+============
+
+    To cross compile the Module, you need to have toolchain for the specific
+    hardware platform. If Mostcore is not already integrated into the kernel,
+    HDM needs to be build with Mostcore(HDM Makefile expects mostcore diretory
+    to be present in the parent directory).
+
+    Command to build the Module,
+    make ARCH=<arch> CROSS_COMPILE=<cross compiler> KDIR=<kernel source dir>
+
+    Example for make (may differ from your configuration):
+    make ARCH=arm KDIR=/home/ubuntu/arwen/linux-xlnx-xilinx-v14.7 \
+       CROSS_COMPILE=/home/ubuntu/arwen/arm-2013.11/bin/arm-none-linux-gnueabi-
+
+    After build process completed, the current directory will contain all the
+    builded modules (mostcore.ko, hdm_i2s.ko).
+
+How To Run
+==========
+
+    1) Load Mostcore  and hdm (using "insmod") in the following order,
+
+        insmod mostcore.ko
+        insmod hdm_i2s.ko
+
+    2) Configure I2S parameters (see "How to configure" section)
+
+Integration into BSP
+====================
+
+    This module can be integrated into any Linux BSP. The module was tested with
+    Linux Kernel v3.0.35 and Mostcore 4.0.7. HDM expects DTS information to be
+    available inside kernel for the configuration of hardware specific
+    settings in HDM.
+
+    The module was tested on Arwen platform MSF-BSP version V1.1.0
+    Device Tree Version: Xilinx EDK 2013.2 EDK_P.68d
+
+How to configure
+================
+
+This module builds a sysfs infrastructure to configure the I2S interface:
+
+    # find /sys/devices/virtual/most/mostcore/devices/mdev1/bus -printf "%M %p\n"
+    drwxr-xr-x /sys/devices/virtual/most/mostcore/devices/mdev1/bus
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/bus_enable
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/clock_source
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_a_enable
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_a_clock_speed
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_a_clock_mode
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_a_data_format
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_b_clock_mode
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_b_enable
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_b_clock_speed
+    -rw-rw-r-- /sys/devices/virtual/most/mostcore/devices/mdev1/bus/port_b_data_format
+
+ Supported Values (without the ""):
+    bus_enable: "1" - for enable
+                "0" - for disable
+
+    clock_source:   "phy1_rmck0" - for phy1 rmck0 as clock source
+                    "phy1_rmck1" - for phy1 rmck1 as clock source
+                    "phy2_rmck0" - for phy2 rmck2 as clock source
+                    "phy2_rmck1" - for phy2 rmck1 as clock source
+                    "dbg_clk"    - for dbg_clk as clock source
+                    "osc1_clk"   - for osc1_clk as clock source
+                    "osc2_clk"   - for osc2_clk as clock source
+                    "osc3_clk"   - for osc3_clk as clock source
+
+    port_N_enable:  1 - for enable
+                    0 - for disable
+
+    -- Maximum data rate:= clock_speed*frame_rate [Bits]
+    -- Example: 512fs means max 512 bits per frame => 64byte per frame
+    port_N_clock_speed: "8fs"  - 8*frame_rate (typical 48kHz)
+                        "16fs" - 16*frame_rate (typical 48kHz)
+                        "32fs" - 32*frame_rate (typical 48kHz)
+                        "64fs" - 64*frame_rate (typical 48kHz)
+                        "128fs"- 128*frame_rate (typical 48kHz)
+                        "256fs"- 256*frame_rate (typical 48kHz)
+                        "512fs"- 512*frame_rate (typical 48kHz)
+
+    port_N_clock_mode:  "master" - IP is driving I2S clock
+                        "slave"  - External I2S clock driver
+
+    port_N_data_format:  "delayed"       - data is delayed by one clock
+                         "delayed_seq"   - sequential data delayed by one clock
+                         "seq"           - sequential data alignment
+                         "left_mono"     - data is left aligned, mono
+                         "left_stereo"   - data is left aligned, stereo
+                         "right_mono"    - data is right aligned, mono
+                         "right_stereo"  - data is right aligned, stereo
+
+
+
+
+"configure.sh" script contains the supported values for all parameters.
+The script also contains some example configurations.
+
+Important Note: Write 1 to "bus_enable" after configuring all other parameters.
+
+To configure a specific configuration run the script as,
+
+   ./configure.sh <configuration_option>
+
+   ( ex: ./configure.sh left_64fs_16bit )
+
+    Following configuration options are currently available,
+    (The script can be extended to support more configurations)
+
+    delay_64fs_16bit
+    left_64fs_16bit
+    right_64fs_16bit
+    delay_64fs_seq
+    delay_128fs_seq
+    delay_256fs_seq
+    delay_512fs_seq
+    seq_64fs
+    seq_128fs
+    seq_256fs
+    seq_512fs
+
+    Important Note: The application must configure the buffer size as 2044 bytes
+
+Testing
+=======
+
+    Stereo Audio Testing
+    ====================
+
+    HDM was tested with 4 bytes stereo audio using the following setup,
+
+        Audio In
+          Optolyzer
+            MOST Network
+              INIC on MSP (OS81110)
+                I2S IP on MSP
+                  I2S HDM
+                    Mostcore
+                      Loop-back application
+                    Mostcore
+                  I2S HDM
+                I2S IP on MSP
+              INIC on MSP (OS81110)
+            MOST Network
+          Optolyzer
+        Audio Out
+
+
+    Tested Formats are (supported by OS81110),
+
+        seq_64fs,  delay_64fs_seq,
+        seq_128fs, delay_128fs_seq,
+        seq_256fs, delay_256fs_seq,
+        seq_512fs, delay_512fs_seq,
+        delay_64fs_16bit,
+        left_64fs_16bit,
+        right_64fs_16bit
+
+    Loop-back Sockets Testing
+    =========================
+
+    HDM was tested for different frame size (4, 8, 16, 32, 64) using the following setup,
+
+        Test application (TX Thread)
+          Mostcore
+            I2S HDM
+              MOST Network
+                I2S IP on MSP (TX Channel)
+                  INIC on MSP (OS81110)
+                    Loop-back Socket Connection
+                  INIC on MSP (OS81110)
+                I2S IP on MSP (RX Channel)
+              MOST Network
+            I2S HDM
+          Mostcore
+        Test application (RX Thread)
