@@ -301,6 +301,9 @@ struct most_aim {
 				  int channel_idx);
 	int (*rx_completion)(struct mbo *mbo);
 	int (*tx_completion)(struct most_interface *iface, int channel_idx);
+	int (*deliver_netinfo)(struct most_interface *iface,
+			       unsigned char link_stat,
+			       unsigned char *mac_addr);
 	void *context;
 };
 
@@ -380,5 +383,7 @@ int most_start_channel(struct most_interface *iface, int channel_idx,
 		       struct most_aim *);
 int most_stop_channel(struct most_interface *iface, int channel_idx,
 		      struct most_aim *);
+void most_deliver_netinfo(struct most_interface *iface,
+			  unsigned char link_stat, unsigned char *mac_addr);
 
 #endif /* MOST_CORE_H_ */

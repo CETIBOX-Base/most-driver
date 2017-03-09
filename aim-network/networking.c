@@ -22,7 +22,6 @@
 #include <linux/wait.h>
 #include <linux/kobject.h>
 #include "mostcore.h"
-#include "networking.h"
 
 #define MEP_HDR_LEN 8
 #define MDP_HDR_LEN 16
@@ -514,12 +513,48 @@ out:
 	return 0;
 }
 
+/**
+ * aim_deliver_netinfo - callback for HDM to be informed about HW's MAC
+ * @param iface - most interface instance
+ * @param link_stat - link status
+ * @param mac_addr - MAC address
+ */
+static void aim_deliver_netinfo(struct most_interface *iface,
+				unsigned char link_stat,
+				unsigned char *mac_addr)
+{
+	struct net_dev_context *nd;
+	struct net_device *dev;
+	const u8 *m = mac_addr;
+
+	nd = get_net_dev_context(iface);
+	if (!nd)
+		return;
+
+	dev = nd->dev;
+	if (!dev)
+		return;
+
+	if (m && is_valid_ether_addr(m)) {
+		if (!is_valid_ether_addr(dev->dev_addr)) {
+			netdev_info(dev, "set mac %02x-%02x-%02x-%02x-%02x-%02x\n",
+				    m[0], m[1], m[2], m[3], m[4], m[5]);
+			ether_addr_copy(dev->dev_addr, m);
+			complete(&nd->mac_compl);
+		} else if (!ether_addr_equal(dev->dev_addr, m)) {
+			netdev_warn(dev, "reject mac %02x-%02x-%02x-%02x-%02x-%02x\n",
+				    m[0], m[1], m[2], m[3], m[4], m[5]);
+		}
+	}
+}
+
 static struct most_aim aim = {
 	.name = "networking",
 	.probe_channel = aim_probe_channel,
 	.disconnect_channel = aim_disconnect_channel,
 	.tx_completion = aim_resume_tx_channel,
 	.rx_completion = aim_rx_data,
+	.deliver_netinfo = aim_deliver_netinfo,
 };
 
 static int __init most_net_init(void)
@@ -551,41 +586,6 @@ static void __exit most_net_exit(void)
 	most_deregister_aim(&aim);
 	pr_info("most_net_exit()\n");
 }
-
-/**
- * most_deliver_netinfo - callback for HDM to be informed about HW's MAC
- * @param iface - most interface instance
- * @param link_stat - link status
- * @param mac_addr - MAC address
- */
-void most_deliver_netinfo(struct most_interface *iface,
-			  unsigned char link_stat, unsigned char *mac_addr)
-{
-	struct net_dev_context *nd;
-	struct net_device *dev;
-	const u8 *m = mac_addr;
-
-	nd = get_net_dev_context(iface);
-	if (!nd)
-		return;
-
-	dev = nd->dev;
-	if (!dev)
-		return;
-
-	if (m && is_valid_ether_addr(m)) {
-		if (!is_valid_ether_addr(dev->dev_addr)) {
-			netdev_info(dev, "set mac %02x-%02x-%02x-%02x-%02x-%02x\n",
-				    m[0], m[1], m[2], m[3], m[4], m[5]);
-			ether_addr_copy(dev->dev_addr, m);
-			complete(&nd->mac_compl);
-		} else if (!ether_addr_equal(dev->dev_addr, m)) {
-			netdev_warn(dev, "reject mac %02x-%02x-%02x-%02x-%02x-%02x\n",
-				    m[0], m[1], m[2], m[3], m[4], m[5]);
-		}
-	}
-}
-EXPORT_SYMBOL(most_deliver_netinfo);
 
 module_init(most_net_init);
 module_exit(most_net_exit);

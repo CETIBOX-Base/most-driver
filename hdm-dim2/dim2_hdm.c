@@ -26,7 +26,6 @@
 #include <linux/kthread.h>
 
 #include <mostcore.h>
-#include <networking.h>
 #include "dim2_hal.h"
 #include "dim2_hdm.h"
 #include "dim2_errors.h"

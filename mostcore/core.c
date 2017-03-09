@@ -1974,6 +1974,23 @@ void most_resume_enqueue(struct most_interface *iface, int id)
 }
 EXPORT_SYMBOL_GPL(most_resume_enqueue);
 
+/**
+ * most_deliver_netinfo - interface for HDM to inform AIMs about HW's MAC
+ * @param iface - most interface instance
+ * @param link_stat - link status
+ * @param mac_addr - MAC address
+ */
+void most_deliver_netinfo(struct most_interface *iface,
+			  unsigned char link_stat, unsigned char *mac_addr)
+{
+	struct most_aim_obj *aim_obj;
+
+	list_for_each_entry(aim_obj, &aim_list, list)
+		if (aim_obj->driver->deliver_netinfo)
+			aim_obj->driver->deliver_netinfo(iface, link_stat, mac_addr);
+}
+EXPORT_SYMBOL(most_deliver_netinfo);
+
 static int __init most_init(void)
 {
 	int err;
