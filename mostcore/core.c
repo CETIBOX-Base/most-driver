@@ -36,7 +36,7 @@ static struct class *most_class;
 static struct device *core_dev;
 static struct ida mdev_id;
 static int dummy_num_buffers;
-static struct list_head config_probes;
+static struct list_head config_probes = LIST_HEAD_INIT(config_probes);
 struct mutex config_probes_mt; /* config_probes */
 
 struct most_c_aim_obj {
@@ -581,7 +581,7 @@ create_most_c_obj(const char *name, struct kobject *parent)
  *		     ___I N S T A N C E___
  */
 
-static struct list_head instance_list;
+static struct list_head instance_list = LIST_HEAD_INIT(instance_list);
 
 /**
  * struct most_inst_attribute - to access the attributes of instance object
@@ -780,7 +780,7 @@ struct most_aim_obj {
 
 #define to_aim_obj(d) container_of(d, struct most_aim_obj, kobj)
 
-static struct list_head aim_list;
+static struct list_head aim_list = LIST_HEAD_INIT(aim_list);
 
 /**
  * struct most_aim_attribute - to access the attributes of AIM object
@@ -1996,9 +1996,6 @@ static int __init most_init(void)
 	int err;
 
 	pr_info("init()\n");
-	INIT_LIST_HEAD(&instance_list);
-	INIT_LIST_HEAD(&aim_list);
-	INIT_LIST_HEAD(&config_probes);
 	mutex_init(&config_probes_mt);
 	ida_init(&mdev_id);
 
