@@ -301,9 +301,9 @@ struct most_aim {
 				  int channel_idx);
 	int (*rx_completion)(struct mbo *mbo);
 	int (*tx_completion)(struct most_interface *iface, int channel_idx);
-	int (*deliver_netinfo)(struct most_interface *iface,
-			       unsigned char link_stat,
-			       unsigned char *mac_addr);
+	void (*deliver_netinfo)(struct most_interface *iface,
+			        unsigned char link_stat,
+			        unsigned char *mac_addr);
 	void *context;
 };
 
