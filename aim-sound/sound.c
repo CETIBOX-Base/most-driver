@@ -539,6 +539,14 @@ static int audio_set_hw_params(struct snd_pcm_hardware *pcm_hw,
 		pcm_hw->channels_max = 6;
 		pcm_hw->formats = SNDRV_PCM_FMTBIT_S16_LE |
 				  SNDRV_PCM_FMTBIT_S16_BE;
+	} else if (!strcmp(pcm_format, "6x24")) {
+		if (cfg->subbuffer_size != 18)
+			goto error;
+		pr_info("%s: PCM format is 24-bit 5.1\n", channel->card->id);
+		pcm_hw->channels_min = 6;
+		pcm_hw->channels_max = 6;
+		pcm_hw->formats = SNDRV_PCM_FMTBIT_S24_3LE |
+				  SNDRV_PCM_FMTBIT_S24_3BE;
 	} else {
 		pr_err("%s: PCM format %s not supported\n", channel->card->id, pcm_format);
 		return -EIO;
