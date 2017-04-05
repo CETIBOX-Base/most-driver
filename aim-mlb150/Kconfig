@@ -1,0 +1,9 @@
+config AIM_CDEV_MLB150
+	tristate "Character device AIM (mlb150 interface)"
+
+	---help---
+	  Say Y here if you want to communicate via character devices using
+	  the interface of mlb150 driver.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called aim_cdev_mlb150.

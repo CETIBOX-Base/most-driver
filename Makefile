@@ -12,6 +12,10 @@ obj-m += aim_cdev.o
 aim_cdev-y := aim-cdev/cdev.o
 CFLAGS_cdev.o := -I$(src)/mostcore
 
+obj-m += aim_mlb150.o
+aim_mlb150-y := aim-mlb150/mlb150.o
+CFLAGS_mlb150.o := -I$(src)/mostcore
+
 obj-m += aim_network.o
 aim_network-y := aim-network/networking.o
 CFLAGS_networking.o := -I$(src)/mostcore
