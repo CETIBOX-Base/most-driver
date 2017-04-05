@@ -970,6 +970,7 @@ static int link_channel_to_aim(struct most_c_obj *c, struct most_aim *aim,
 	else
 		return -ENOSPC;
 
+	pr_debug("probing %s %s (%s)\n", aim->name, aim_param, c->kobj.name);
 	*aim_ptr = aim;
 	ret = aim->probe_channel(c->iface, c->channel_id,
 				 &c->cfg, &c->kobj, aim_param);
