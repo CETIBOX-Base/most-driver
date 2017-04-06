@@ -24,6 +24,7 @@
 #include <linux/idr.h>
 #include "mostcore.h"
 
+#define MINOR_COUNT (50)
 static dev_t aim_devno;
 static struct class *aim_class;
 static struct ida minor_id;
@@ -515,7 +516,7 @@ static int __init mod_init(void)
 	spin_lock_init(&ch_list_lock);
 	ida_init(&minor_id);
 
-	err = alloc_chrdev_region(&aim_devno, 0, 50, "cdev");
+	err = alloc_chrdev_region(&aim_devno, 0, MINOR_COUNT, "cdev");
 	if (err < 0)
 		goto dest_ida;
 	major = MAJOR(aim_devno);
@@ -534,7 +535,7 @@ static int __init mod_init(void)
 dest_class:
 	class_destroy(aim_class);
 free_cdev:
-	unregister_chrdev_region(aim_devno, 1);
+	unregister_chrdev_region(aim_devno, MINOR_COUNT);
 dest_ida:
 	ida_destroy(&minor_id);
 	return err;
@@ -553,7 +554,7 @@ static void __exit mod_exit(void)
 		destroy_channel(c);
 	}
 	class_destroy(aim_class);
-	unregister_chrdev_region(aim_devno, 1);
+	unregister_chrdev_region(aim_devno, MINOR_COUNT);
 	ida_destroy(&minor_id);
 }
 
