@@ -48,8 +48,8 @@ struct aim_channel {
 };
 
 #define to_channel(d) container_of(d, struct aim_channel, cdev)
-static struct list_head channel_list;
-static spinlock_t ch_list_lock;
+static struct list_head channel_list = LIST_HEAD_INIT(channel_list);
+static DEFINE_SPINLOCK(ch_list_lock);
 
 static inline bool ch_has_mbo(struct aim_channel *c)
 {
@@ -512,8 +512,6 @@ static int __init mod_init(void)
 
 	pr_info("init()\n");
 
-	INIT_LIST_HEAD(&channel_list);
-	spin_lock_init(&ch_list_lock);
 	ida_init(&minor_id);
 
 	err = alloc_chrdev_region(&aim_devno, 0, MINOR_COUNT, "cdev");
