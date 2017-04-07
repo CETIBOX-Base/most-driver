@@ -365,9 +365,6 @@ static int aim_rx_completion(struct mbo *mbo)
 {
 	struct aim_channel *c;
 
-	if (!mbo)
-		return -EINVAL;
-
 	c = get_channel(mbo->ifp, mbo->hdm_channel_id);
 	if (!c)
 		return -ENXIO;
