@@ -26,7 +26,10 @@
 
 #define MINOR_COUNT (50)
 static dev_t aim_devno;
-static struct class *aim_class;
+static struct class aim_class = {
+	.name = "most_cdev_aim",
+	.owner = THIS_MODULE,
+};
 static struct ida minor_id;
 static unsigned int major;
 static struct most_aim cdev_aim;
@@ -98,7 +101,7 @@ static void destroy_cdev(struct aim_channel *c)
 {
 	unsigned long flags;
 
-	device_destroy(aim_class, c->devno);
+	device_destroy(&aim_class, c->devno);
 	cdev_del(&c->cdev);
 	spin_lock_irqsave(&ch_list_lock, flags);
 	list_del(&c->list);
@@ -470,7 +473,7 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 	spin_lock_irqsave(&ch_list_lock, cl_flags);
 	list_add_tail(&c->list, &channel_list);
 	spin_unlock_irqrestore(&ch_list_lock, cl_flags);
-	c->dev = device_create(aim_class,
+	c->dev = device_create(&aim_class,
 				     NULL,
 				     c->devno,
 				     NULL,
@@ -516,10 +519,10 @@ static int __init mod_init(void)
 		goto dest_ida;
 	major = MAJOR(aim_devno);
 
-	aim_class = class_create(THIS_MODULE, "most_cdev_aim");
-	if (IS_ERR(aim_class)) {
+	aim_class.owner = THIS_MODULE;
+	err = class_register(&aim_class);
+	if (err) {
 		pr_err("no udev support\n");
-		err = PTR_ERR(aim_class);
 		goto free_cdev;
 	}
 	err = most_register_aim(&cdev_aim);
@@ -528,7 +531,7 @@ static int __init mod_init(void)
 	return 0;
 
 dest_class:
-	class_destroy(aim_class);
+	class_unregister(&aim_class);
 free_cdev:
 	unregister_chrdev_region(aim_devno, MINOR_COUNT);
 dest_ida:
@@ -548,7 +551,7 @@ static void __exit mod_exit(void)
 		destroy_cdev(c);
 		destroy_channel(c);
 	}
-	class_destroy(aim_class);
+	class_unregister(&aim_class);
 	unregister_chrdev_region(aim_devno, MINOR_COUNT);
 	ida_destroy(&minor_id);
 }
