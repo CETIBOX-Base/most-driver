@@ -87,7 +87,7 @@ enum mbo_status_flags {
  * for streaming data types (Sync,AV Packetized)
  * @buffer_size_streaming: Maximum buffer size supported by this channel
  * for streaming data types (Sync,AV Packetized)
- * @name_suffix: Optional suffix providean by an HDM that is attached to the
+ * @name_suffix: Optional suffix provided by an HDM that is attached to the
  * regular channel name.
  *
  * Describes the capabilities of a MostCore channel like supported Data Types
