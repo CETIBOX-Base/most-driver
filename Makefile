@@ -16,6 +16,10 @@ obj-m += aim_mlb150.o
 aim_mlb150-y := aim-mlb150/mlb150.o
 CFLAGS_mlb150.o := -I$(src)/mostcore
 
+obj-m += aim_syncsound.o
+aim_syncsound-y := aim-syncsound/syncsound.o
+CFLAGS_syncsound.o := -I$(src)/mostcore
+
 obj-m += aim_network.o
 aim_network-y := aim-network/networking.o
 CFLAGS_networking.o := -I$(src)/mostcore
