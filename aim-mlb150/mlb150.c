@@ -35,6 +35,15 @@
 #define MLB_FIRST_CHANNEL	(1)
 #define MLB_LAST_CHANNEL	(63)
 
+#define FCNT_VALUE 5
+
+/* return the buffer depth for the given bytes-per-frame */
+#define SYNC_BUFFER_DEP(bpf) (4 * (1 << FCNT_VALUE) * (bpf))
+
+#define SYNC_MIN_FRAME_SIZE (2) /* mono, 16bit sample */
+#define SYNC_DMA_MIN_SIZE       SYNC_BUFFER_DEP(SYNC_MIN_FRAME_SIZE) /* mono, 16bit sample */
+#define SYNC_DMA_MAX_SIZE       (0x1fff + 1) /* system memory buffer size in ADT */
+
 /* default number of sync channels which is used
    if module is loaded without parameters. */
 uint number_sync_channels = 7;
@@ -51,7 +60,7 @@ module_param_named(isoc_channels, number_isoc_channels, uint, 0444);
 
 static dev_t aim_devno;
 static struct class aim_class = {
-	.name = DRIVER_NAME,
+	.name = "mlb150",
 	.owner = THIS_MODULE,
 };
 static struct cdev aim_cdev;
@@ -66,9 +75,17 @@ struct aim_channel {
 	/* mostcore channels associated with this mlb150 interface */
 	struct list_head most;
 	u32 mlb150_caddr;
+	unsigned mlb150_sync_buf_size;
 	size_t mbo_offs;
 	DECLARE_KFIFO_PTR(fifo, typeof(struct mbo *));
 	int users;
+
+	rwlock_t stat_lock;
+	long long tx_bytes, rx_bytes, rx_pkts, tx_pkts;
+	long long rx_drops, tx_drops;
+	struct device_attribute stat_attr;
+	struct device_attribute bufsize_attr;
+	struct device_attribute dump_attr;
 };
 
 struct mostcore_channel {
@@ -200,6 +217,7 @@ static ssize_t aim_read(struct file *filp, char __user *buf,
 {
 	ssize_t copied;
 	size_t to_copy, not_copied;
+	unsigned long flags;
 	struct mbo *mbo;
 	struct aim_channel *c = filp->private_data;
 	struct mostcore_channel *most;
@@ -225,7 +243,10 @@ static ssize_t aim_read(struct file *filp, char __user *buf,
 		copied = -ENODEV;
 		goto unlock;
 	}*/
-
+	write_lock_irqsave(&c->stat_lock, flags);
+	c->rx_pkts++;
+	c->rx_bytes += mbo->processed_length;
+	write_unlock_irqrestore(&c->stat_lock, flags);
 	to_copy = min_t(size_t, count, mbo->processed_length - c->mbo_offs);
 	not_copied = copy_to_user(buf, mbo->virt_address + c->mbo_offs, to_copy);
 	copied = to_copy - not_copied;
@@ -279,7 +300,13 @@ static ssize_t aim_write(struct file *filp, const char __user *buf,
 	if (c->mbo_offs >= most->cfg->buffer_size ||
 	    most->cfg->data_type == MOST_CH_CONTROL ||
 	    most->cfg->data_type == MOST_CH_ASYNC) {
+		unsigned long flags;
+
 		kfifo_skip(&c->fifo);
+		write_lock_irqsave(&c->stat_lock, flags);
+		c->tx_pkts++;
+		c->tx_bytes += mbo->buffer_length;
+		write_unlock_irqrestore(&c->stat_lock, flags);
 		mbo->buffer_length = c->mbo_offs;
 		c->mbo_offs = 0;
 		most_submit_mbo(mbo);
@@ -489,7 +516,8 @@ static int mlb150_sync_chan_startup(struct aim_channel *c, uint accmode,
 	}
 	list_move(&most->head, &c->most);
 	most->cfg->subbuffer_size = bytes_per_frame;
-	most->cfg->buffer_size = 4 * 64 * bytes_per_frame;
+	most->cfg->buffer_size = max(SYNC_BUFFER_DEP(bytes_per_frame),
+				     c->mlb150_sync_buf_size);
 	ret = start_most(c, most);
 unlock:
 	mutex_unlock(&c->io_mutex);
@@ -499,19 +527,15 @@ unlock:
 static int mlb150_chan_shutdown(struct aim_channel *c)
 {
 	struct mostcore_channel *most;
-	int ret;
 
 	mutex_lock(&c->io_mutex);
 	most = ch_current(c);
-	if (!most->started) {
-		ret = -EBADF;
-		goto unlock;
-	}
-	stop_most(c, most);
-	ret = 0;
-unlock:
+	if (most->started)
+		stop_most(c, most);
+	else
+		most = NULL;
 	mutex_unlock(&c->io_mutex);
-	return ret;
+	return most ? 0 : -EBADF;
 }
 
 static long aim_mlb150_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -747,6 +771,107 @@ fail:
 	return err;
 }
 
+static ssize_t show_dev_stats(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct aim_channel *c = container_of(attr, struct aim_channel, stat_attr);
+	unsigned long flags;
+	ssize_t ret;
+
+	read_lock_irqsave(&c->stat_lock, flags);
+	ret = scnprintf(buf, PAGE_SIZE, "%lld %lld %lld %lld %lld %lld\n",
+			c->rx_bytes, c->tx_bytes,
+			c->rx_pkts,  c->tx_pkts,
+			c->rx_drops, c->tx_drops);
+	read_unlock_irqrestore(&c->stat_lock, flags);
+	return ret;
+}
+
+static ssize_t show_buffer_size(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	struct aim_channel *c = container_of(attr, struct aim_channel, bufsize_attr);
+
+	return snprintf(buf, PAGE_SIZE, "%u", c->mlb150_sync_buf_size);
+}
+
+static ssize_t store_buffer_size(struct device *dev, struct device_attribute *attr, const char *buf, size_t len)
+{
+	struct aim_channel *c = container_of(attr, struct aim_channel, bufsize_attr);
+	unsigned val;
+	ssize_t ret = kstrtouint(buf, 0, &val);
+
+	if (ret == 0) {
+		ret = len;
+		c->mlb150_sync_buf_size = val;
+	}
+	return ret;
+}
+
+static ssize_t show_dev_dump(struct device *dev, struct device_attribute *attr, char *buf)
+{
+	return scnprintf(buf, PAGE_SIZE, "# write 1 to dump\n");
+}
+
+static ssize_t store_dev_dump(struct device *dev, struct device_attribute *attr, const char *buf, size_t len)
+{
+	struct aim_channel *c = container_of(attr, struct aim_channel, dump_attr);
+
+	dev_info(dev, "%s dump\n", c->name);
+	return len;
+}
+
+static int __init init_aim_channel_attrs(struct aim_channel *c)
+{
+	int ret;
+
+	sysfs_attr_init(&c->stat_attr.attr);
+	sysfs_attr_init(&c->dump_attr.attr);
+	rwlock_init(&c->stat_lock);
+	c->stat_attr.attr.mode = 0444;
+	c->stat_attr.attr.name = "stat";
+	c->stat_attr.show = show_dev_stats;
+	ret = device_create_file(c->dev, &c->stat_attr);
+	if (ret) {
+		dev_err(c->dev, "cannot create attribute '%s': %d\n",
+			c->stat_attr.attr.name, ret);
+		goto fail;
+	}
+	c->dump_attr.attr.mode = 0600;
+	c->dump_attr.attr.name = "dump";
+	c->dump_attr.show = show_dev_dump;
+	c->dump_attr.store = store_dev_dump;
+	ret = device_create_file(c->dev, &c->dump_attr);
+	if (ret) {
+		dev_err(c->dev, "cannot create attribute '%s': %d\n",
+			c->dump_attr.attr.name, ret);
+		goto fail;
+	}
+	return 0;
+fail:
+	if (c->stat_attr.attr.mode)
+		device_remove_file(c->dev, &c->stat_attr);
+	c->stat_attr.attr.mode = 0;
+	c->dump_attr.attr.mode = 0;
+	return ret;
+}
+
+static int __init init_sync_channel_attrs(struct aim_channel *c)
+{
+	int ret;
+
+	sysfs_attr_init(&c->bufsize_attr.attr);
+	c->bufsize_attr.attr.mode = 0644;
+	c->bufsize_attr.attr.name = "buffer_size";
+	c->bufsize_attr.show = show_buffer_size;
+	c->bufsize_attr.store = store_buffer_size;
+	ret = device_create_file(c->dev, &c->bufsize_attr);
+	if (ret) {
+		dev_err(c->dev, "cannot create attribute '%s': %d\n",
+			c->bufsize_attr.attr.name, ret);
+		c->bufsize_attr.attr.mode = 0;
+	}
+	return ret;
+}
+
 static const struct file_operations aim_channel_fops = {
 	.owner = THIS_MODULE,
 	.open = aim_open,
@@ -813,6 +938,13 @@ static int __init mod_init(void)
 			pr_debug("%s: device_create failed %d\n", c->name, err);
 			goto free_devices;
 		}
+		err = init_aim_channel_attrs(c);
+		if (!err && id < number_sync_channels) {
+			err = init_sync_channel_attrs(c);
+			c->mlb150_sync_buf_size = SYNC_DMA_MIN_SIZE;
+		}
+		if (err)
+			goto free_devices;
 		kobject_uevent(&c->dev->kobj, KOBJ_ADD);
 	}
 	err = most_register_aim(&aim);
@@ -820,8 +952,15 @@ static int __init mod_init(void)
 		goto free_devices;
 	return 0;
 free_devices:
-	while (c-- > aim_channels)
+	while (c-- > aim_channels) {
+		if (c->stat_attr.attr.mode)
+			device_remove_file(c->dev, &c->stat_attr);
+		if (c->bufsize_attr.attr.mode)
+			device_remove_file(c->dev, &c->bufsize_attr);
+		if (c->dump_attr.attr.mode)
+			device_remove_file(c->dev, &c->dump_attr);
 		device_destroy(&aim_class, c->devno);
+	}
 	class_unregister(&aim_class);
 free_cdev:
 	cdev_del(&aim_cdev);
@@ -841,6 +980,10 @@ static void __exit mod_exit(void)
 	most_deregister_aim(&aim);
 	for (c = aim_channels + used_minor_devices; --c >= aim_channels;) {
 		kfifo_free(&c->fifo);
+		device_remove_file(c->dev, &c->stat_attr);
+		if (c->bufsize_attr.attr.mode)
+			device_remove_file(c->dev, &c->bufsize_attr);
+		device_remove_file(c->dev, &c->dump_attr);
 		device_destroy(&aim_class, c->devno);
 	}
 	class_unregister(&aim_class);
