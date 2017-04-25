@@ -1765,7 +1765,7 @@ static int probe_aim(struct most_c_obj *c,
 	return 0;
 }
 
-static bool probe_config_set(struct most_c_obj *c,
+static void probe_config_set(struct most_c_obj *c,
 			     const char *dev_name, const char *ch_name,
 			     const struct most_config_probe *p)
 {
@@ -1775,17 +1775,16 @@ static bool probe_config_set(struct most_c_obj *c,
 		if ((p->dev_name && strcmp(dev_name, p->dev_name)) ||
 		    strcmp(ch_name, p->ch_name))
 			continue;
-
-		c->cfg = p->cfg;
+		if (p->cfg)
+			c->cfg = *p->cfg;
 		if (p->aim_name) {
 			err = probe_aim(c, p->aim_name, p->aim_param);
 			if (err)
-				pr_err("failed to autolink %s to %s: %d\n",
-				       ch_name, p->aim_name, err);
+				pr_err("failed to autolink %s to %s %s: %d\n",
+				       ch_name, p->aim_name,
+				       p->aim_param ? p->aim_param : "", err);
 		}
-		return true;
 	}
-	return false;
 }
 
 static void find_configuration(struct most_c_obj *c, const char *dev_name,
@@ -1794,10 +1793,8 @@ static void find_configuration(struct most_c_obj *c, const char *dev_name,
 	struct most_config_set *plist;
 
 	mutex_lock(&config_probes_mt);
-	list_for_each_entry(plist, &config_probes, list) {
-		if (probe_config_set(c, dev_name, ch_name, plist->probes))
-			break;
-	}
+	list_for_each_entry(plist, &config_probes, list)
+		probe_config_set(c, dev_name, ch_name, plist->probes);
 	mutex_unlock(&config_probes_mt);
 }
 
@@ -1880,8 +1877,8 @@ struct kobject *most_register_interface(struct most_interface *iface)
 		list_add_tail(&c->list, &inst->channel_list);
 		find_configuration(c, iface->description, channel_name);
 	}
-	pr_info("registered new MOST device mdev%d (%s)\n",
-		inst->dev_id, iface->description);
+	pr_info("registered new MOST device mdev%d (%s, %u chs)\n",
+		inst->dev_id, iface->description, iface->num_channels);
 	return &inst->kobj;
 
 free_instance:

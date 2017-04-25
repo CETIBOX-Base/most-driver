@@ -159,7 +159,7 @@ struct most_channel_config {
 struct most_config_probe {
 	const char *dev_name;
 	const char *ch_name;
-	struct most_channel_config cfg;
+	const struct most_channel_config *cfg;
 	const char *aim_name;
 	const char *aim_param;
 };
