@@ -65,6 +65,8 @@ static struct class aim_class = {
 };
 static struct cdev aim_cdev;
 
+struct mostcore_channel;
+
 struct aim_channel {
 	char name[20 /* MLB_DEV_NAME_SIZE */];
 	wait_queue_head_t wq;
@@ -72,8 +74,7 @@ struct aim_channel {
 	dev_t devno;
 	struct device *dev;
 	struct mutex io_mutex;
-	/* mostcore channels associated with this mlb150 interface */
-	struct list_head most;
+	struct mostcore_channel *most;
 	u32 mlb150_caddr;
 	unsigned mlb150_sync_buf_size;
 	size_t mbo_offs;
@@ -92,11 +93,9 @@ struct sync_fmt_param {
 	int fpt; /* USB frames-per-transaction value */
 };
 struct mostcore_channel {
-	struct list_head head;
 	struct most_interface *iface;
 	struct most_channel_config *cfg;
 	unsigned int channel_id;
-	int mlb150_id;
 	int started;
 	struct aim_channel *aim;
 	struct mostcore_channel *next; /* used by most->aim channel mapping */
@@ -107,6 +106,7 @@ struct mostcore_channel {
 #define foreach_aim_channel(c) \
 	for (c = aim_channels; (c) < aim_channels + used_minor_devices; ++c)
 
+static struct mostcore_channel mlb_channels[MLB_LAST_CHANNEL + 1];
 static struct aim_channel *aim_channels;
 static uint used_minor_devices;
 static struct most_aim aim; /* forward declaration */
@@ -114,16 +114,6 @@ static struct most_aim aim; /* forward declaration */
 static inline bool ch_not_found(const struct aim_channel *c)
 {
 	return c == aim_channels + used_minor_devices;
-}
-
-static inline struct mostcore_channel *ch_current(const struct aim_channel *c)
-{
-	return list_first_entry(&c->most, struct mostcore_channel, head);
-}
-
-static bool ch_is_started(const struct aim_channel *c)
-{
-	return ch_current(c)->started;
 }
 
 static DEFINE_SPINLOCK(aim_most_lock);
@@ -199,13 +189,10 @@ static struct mostcore_channel *forget_channel(struct most_interface *iface, int
 
 static inline bool ch_get_mbo(struct aim_channel *c, struct mbo **mbo)
 {
-	struct mostcore_channel *most;
-
 	if (kfifo_peek(&c->fifo, mbo))
 		return *mbo;
 
-	most = ch_current(c);
-	*mbo = most_get_mbo(most->iface, most->channel_id, &aim);
+	*mbo = most_get_mbo(c->most->iface, c->most->channel_id, &aim);
 	if (*mbo)
 		kfifo_in(&c->fifo, mbo, 1);
 	return *mbo;
@@ -224,29 +211,25 @@ static ssize_t aim_read(struct file *filp, char __user *buf,
 	unsigned long flags;
 	struct mbo *mbo;
 	struct aim_channel *c = filp->private_data;
-	struct mostcore_channel *most;
 
 	mutex_lock(&c->io_mutex);
-	most = ch_current(c);
-	if (!most->started) {
+	if (!c->most || !c->most->started) {
 		copied = -ESHUTDOWN;
 		goto unlock;
 	}
-	while (c->dev && !kfifo_peek(&c->fifo, &mbo)) {
+	while (c->most && !kfifo_peek(&c->fifo, &mbo)) {
 		mutex_unlock(&c->io_mutex);
 		if (filp->f_flags & O_NONBLOCK)
 			return -EAGAIN;
 		if (wait_event_interruptible(c->wq,
-			(!kfifo_is_empty(&c->fifo) /* || !c->dev */)))
+			(!kfifo_is_empty(&c->fifo) || !c->most)))
 			return -ERESTARTSYS;
 		mutex_lock(&c->io_mutex);
 	}
-
-	/* make sure we don't submit to gone devices */
-	/*if (unlikely(!c->dev)) {
-		copied = -ENODEV;
+	if (unlikely(!c->most)) {
+		copied = -ESHUTDOWN;
 		goto unlock;
-	}*/
+	}
 	write_lock_irqsave(&c->stat_lock, flags);
 	c->rx_pkts++;
 	c->rx_bytes += mbo->processed_length;
@@ -271,39 +254,35 @@ static ssize_t aim_write(struct file *filp, const char __user *buf,
 	ssize_t ret;
 	size_t to_copy, left;
 	struct mbo *mbo = NULL;
-	struct mostcore_channel *most;
 	struct aim_channel *c = filp->private_data;
 
 	mutex_lock(&c->io_mutex);
-	most = ch_current(c);
-	if (!most->started) {
+	if (!c->most || !c->most->started) {
 		ret = -ESHUTDOWN;
 		goto unlock;
 	}
-	while (/*c->dev && */!ch_get_mbo(c, &mbo)) {
+	while (c->most && !ch_get_mbo(c, &mbo)) {
 		mutex_unlock(&c->io_mutex);
 		if (filp->f_flags & O_NONBLOCK)
 			return -EAGAIN;
-		if (wait_event_interruptible(c->wq, ch_has_mbo(most) /*|| !c->dev*/))
+		if (wait_event_interruptible(c->wq, ch_has_mbo(c->most) || !c->most))
 			return -ERESTARTSYS;
 		mutex_lock(&c->io_mutex);
 	}
-/*
-	if (unlikely(!c->dev)) {
-		ret = -ENODEV;
+	if (unlikely(!c->most)) {
+		ret = -ESHUTDOWN;
 		goto unlock;
 	}
-*/
-	to_copy = min(count, most->cfg->buffer_size - c->mbo_offs);
+	to_copy = min(count, c->most->cfg->buffer_size - c->mbo_offs);
 	left = copy_from_user(mbo->virt_address + c->mbo_offs, buf, to_copy);
 	if (left == to_copy) {
 		ret = -EFAULT;
 		goto unlock;
 	}
 	c->mbo_offs += to_copy - left;
-	if (c->mbo_offs >= most->cfg->buffer_size ||
-	    most->cfg->data_type == MOST_CH_CONTROL ||
-	    most->cfg->data_type == MOST_CH_ASYNC) {
+	if (c->mbo_offs >= c->most->cfg->buffer_size ||
+	    c->most->cfg->data_type == MOST_CH_CONTROL ||
+	    c->most->cfg->data_type == MOST_CH_ASYNC) {
 		unsigned long flags;
 
 		kfifo_skip(&c->fifo);
@@ -324,54 +303,59 @@ unlock:
 static unsigned int aim_poll(struct file *filp, poll_table *wait)
 {
 	struct aim_channel *c = filp->private_data;
-	struct mostcore_channel *most;
 	unsigned int mask = 0;
 
 	poll_wait(filp, &c->wq, wait);
 	mutex_lock(&c->io_mutex);
-	most = ch_current(c);
-	if (!most->started)
+	if (!c->most || !c->most->started)
 		mask |= POLLIN|POLLOUT|POLLERR|POLLNVAL|POLLHUP;
-	else if (most->cfg->direction == MOST_CH_RX) {
+	else if (c->most->cfg->direction == MOST_CH_RX) {
 		if (!kfifo_is_empty(&c->fifo))
 			mask |= POLLIN | POLLRDNORM;
 	} else {
-		if (!kfifo_is_empty(&c->fifo) || ch_has_mbo(most))
+		if (!kfifo_is_empty(&c->fifo) || ch_has_mbo(c->most))
 			mask |= POLLOUT | POLLWRNORM;
 	}
 	mutex_unlock(&c->io_mutex);
 	return mask;
 }
 
-static int start_most(struct aim_channel *c, struct mostcore_channel *most)
+static int start_most(struct aim_channel *c)
+	__must_hold(&c->io_mutex)
 {
 	int ret;
 
-	ret = kfifo_alloc(&c->fifo, most->cfg->num_buffers, GFP_KERNEL);
+	ret = kfifo_alloc(&c->fifo, c->most->cfg->num_buffers, GFP_KERNEL);
 	if (ret)
 		return ret;
 	c->mbo_offs = 0;
-	ret = most_start_channel(most->iface, most->channel_id, &aim);
+	ret = most_start_channel(c->most->iface, c->most->channel_id, &aim);
 	if (!ret)
-		most->started = 1;
-	pr_debug("subbuffer_size %u, buffer_size %u ret %d\n",
-		 most->cfg->subbuffer_size, most->cfg->buffer_size, ret);
+		c->most->started = 1;
+	pr_debug("%s.%u (%s) subbuffer_size %u, buffer_size %u ret %d\n",
+		 c->name, c->most - mlb_channels,
+		 c->most->cfg->direction == MOST_CH_RX ? "rx" : "tx",
+		 c->most->cfg->subbuffer_size, c->most->cfg->buffer_size, ret);
 	return ret;
 }
 
-static void stop_most(struct aim_channel *c, struct mostcore_channel *most)
+static void stop_most(struct aim_channel *c)
 	__must_hold(&c->io_mutex)
 {
 	struct mbo *mbo;
 
-	pr_debug("%s.%u (%s) shut down\n", c->name, most->mlb150_id,
-		 most->cfg->direction == MOST_CH_RX ? "rx" : "tx");
-	while (kfifo_out((struct kfifo *)&c->fifo, &mbo, 1))
-		most_put_mbo(mbo);
-	most_stop_channel(most->iface, most->channel_id, &aim);
+	pr_debug("%s.%u (%s) shut down\n",
+		 c->name, c->most - mlb_channels,
+		 c->most->cfg->direction == MOST_CH_RX ? "rx" : "tx");
+	if (c->most->started) {
+		while (kfifo_out((struct kfifo *)&c->fifo, &mbo, 1))
+			most_put_mbo(mbo);
+		most_stop_channel(c->most->iface, c->most->channel_id, &aim);
+	}
 	kfifo_free(&c->fifo);
 	INIT_KFIFO(c->fifo);
-	most->started = 0;
+	c->most->started = 0;
+	c->most = NULL;
 }
 
 static int __must_check valid_caddr(unsigned int caddr)
@@ -390,29 +374,19 @@ static int __must_check valid_caddr(unsigned int caddr)
 
 static int mlb150_chan_setaddr(struct aim_channel *c, u32 caddr)
 {
-	struct mostcore_channel *most;
 	const uint tx = (caddr >> 16) & 0xffff;
 	const uint rx = caddr & 0xffff;
 	int ret;
 
 	mutex_lock(&c->io_mutex);
-	if (ch_is_started(c)) {
+	if (c->most && c->most->started) {
 		ret = -EBUSY;
 		goto unlock;
 	}
-	list_for_each_entry(most, &c->most, head) {
-		if (most->cfg->direction == MOST_CH_RX && most->mlb150_id == rx)
-			break;
-		if (most->cfg->direction == MOST_CH_TX && most->mlb150_id == tx)
-			break;
-	}
-	if (&most->head == &c->most) {
-		ret = -ENODEV;
-		goto unlock;
-	}
-	pr_debug("caddr 0x%08x (%s.%u)\n", caddr, c->name, most->mlb150_id);
+	pr_debug("caddr 0x%08x (%s %s%s)\n", caddr, c->name,
+		 mlb_channels[rx].cfg ? "Rx" : "--",
+		 mlb_channels[tx].cfg ? "Tx" : "--");
 	c->mlb150_caddr = caddr;
-	list_move(&most->head, &c->most);
 	ret = 0;
 unlock:
 	mutex_unlock(&c->io_mutex);
@@ -425,21 +399,20 @@ static int mlb150_chan_startup(struct aim_channel *c, uint accmode)
 	struct mostcore_channel *most;
 
 	mutex_lock(&c->io_mutex);
-	if (ch_is_started(c)) {
+	if (c->most) {
 		ret = -EBUSY;
 		goto unlock;
 	}
-	list_for_each_entry(most, &c->most, head) {
-		if (accmode == O_RDONLY &&
-		    most->cfg->direction == MOST_CH_RX &&
-		    most->mlb150_id >= MLB_FIRST_CHANNEL)
-			break;
-		if (accmode == O_WRONLY &&
-		    most->cfg->direction == MOST_CH_TX &&
-		    most->mlb150_id >= MLB_FIRST_CHANNEL)
-			break;
+	if (accmode == O_RDONLY)
+		most = mlb_channels + (c->mlb150_caddr & 0xffff);
+	else if (accmode == O_WRONLY)
+		most = mlb_channels + ((c->mlb150_caddr >> 16) & 0xffff);
+	else {
+		ret = -EINVAL;
+		goto unlock;
 	}
-	if (&most->head == &c->most) {
+	if (!most->cfg || most->cfg->direction != (accmode == O_RDONLY ?
+						   MOST_CH_RX : MOST_CH_TX)) {
 		ret = -ENODEV;
 		goto unlock;
 	}
@@ -447,7 +420,6 @@ static int mlb150_chan_startup(struct aim_channel *c, uint accmode)
 		ret = -EINVAL;
 		goto unlock;
 	}
-	list_move(&most->head, &c->most);
 
 	// TODO
 	pr_debug("unimplemenented"); ret = -ENOTSUPP; goto unlock;
@@ -495,22 +467,14 @@ static int mlb150_sync_chan_startup(struct aim_channel *c, uint accmode,
 	if (!(accmode == O_RDONLY || accmode == O_WRONLY))
 		return -EINVAL;
 	mutex_lock(&c->io_mutex);
-	if (ch_is_started(c)) {
+	if (c->most) {
 		ret = -EBUSY;
 		goto unlock;
 	}
-	if (accmode == O_RDONLY) {
-		list_for_each_entry(most, &c->most, head)
-			if (most->cfg->direction == MOST_CH_RX &&
-			    most->mlb150_id >= MLB_FIRST_CHANNEL)
-				break;
-	} else {
-		list_for_each_entry(most, &c->most, head)
-			if (most->cfg->direction == MOST_CH_TX &&
-			    most->mlb150_id >= MLB_FIRST_CHANNEL)
-				break;
-	}
-	if (&most->head == &c->most) {
+	most = mlb_channels + (accmode == O_RDONLY ? c->mlb150_caddr & 0xffff :
+			       (c->mlb150_caddr >> 16) & 0xffff);
+	if (!most->cfg || most->cfg->direction != (accmode == O_RDONLY ?
+						   MOST_CH_RX : MOST_CH_TX)) {
 		ret = -ENODEV;
 		goto unlock;
 	}
@@ -518,12 +482,13 @@ static int mlb150_sync_chan_startup(struct aim_channel *c, uint accmode,
 		ret = -EINVAL;
 		goto unlock;
 	}
-	list_move(&most->head, &c->most);
+	most->aim = c;
+	c->most = most;
 	most->cfg->packets_per_xact = most->sync_params[startup_mode].fpt;
 	most->cfg->subbuffer_size = bytes_per_frame;
 	most->cfg->buffer_size = max(SYNC_BUFFER_DEP(bytes_per_frame),
 				     c->mlb150_sync_buf_size);
-	ret = start_most(c, most);
+	ret = start_most(c);
 unlock:
 	mutex_unlock(&c->io_mutex);
 	return ret;
@@ -531,16 +496,15 @@ unlock:
 
 static int mlb150_chan_shutdown(struct aim_channel *c)
 {
-	struct mostcore_channel *most;
+	int ret = 0;
 
 	mutex_lock(&c->io_mutex);
-	most = ch_current(c);
-	if (most->started)
-		stop_most(c, most);
+	if (c->most)
+		stop_most(c);
 	else
-		most = NULL;
+		ret = -EBADF;
 	mutex_unlock(&c->io_mutex);
-	return most ? 0 : -EBADF;
+	return ret;
 }
 
 static long aim_mlb150_ioctl(struct file *filp, unsigned int cmd, unsigned long arg)
@@ -626,7 +590,6 @@ static long aim_mlb150_ioctl(struct file *filp, unsigned int cmd, unsigned long 
 static int aim_open(struct inode *inode, struct file *filp)
 {
 	int ret;
-	struct mostcore_channel *most;
 	enum most_channel_direction dir;
 	struct aim_channel *c = aim_channels +
 		MINOR(file_inode(filp)->i_rdev) - MINOR_BASE;
@@ -648,22 +611,9 @@ static int aim_open(struct inode *inode, struct file *filp)
 		ret = -EBUSY;
 		goto unlock;
 	}
-	list_for_each_entry(most, &c->most, head)
-		if (most->cfg->direction == dir)
-			break;
-	if (&most->head == &c->most) {
-		ret = -ENODEV;
-		goto unlock;
-	}
-	/*
-	 * Move the first found mostcore channel with the right
-	 * direction to the head of the list of channels to
-	 * speed up searches when starting the channel.
-	 */
-	list_move(&most->head, &c->most);
 	c->users++;
-	pr_debug("%s.%u (%s)\n", c->name, most->mlb150_id,
-		 dir == MOST_CH_TX ? "tx" : "rx");
+	ret = 0;
+	pr_debug("%s (%s)\n", c->name, dir == MOST_CH_TX ? "tx" : "rx");
 unlock:
 	mutex_unlock(&c->io_mutex);
 	return ret;
@@ -672,12 +622,10 @@ unlock:
 static int aim_release(struct inode *inode, struct file *filp)
 {
 	struct aim_channel *c = filp->private_data;
-	struct mostcore_channel *most;
 
 	mutex_lock(&c->io_mutex);
-	list_for_each_entry(most, &c->most, head)
-		if (most->started)
-			stop_most(c, most);
+	if (c->most && c->most->started)
+		stop_most(c);
 	if (c->users)
 		--c->users;
 	mutex_unlock(&c->io_mutex);
@@ -719,10 +667,14 @@ static int aim_disconnect_channel(struct most_interface *iface, int channel_id)
 	most = forget_channel(iface, channel_id);
 	if (!most)
 		return -ENXIO;
-	mutex_lock(&most->aim->io_mutex);
-	list_del(&most->head);
-	kfree(most);
-	mutex_unlock(&most->aim->io_mutex);
+	if (most->aim) {
+		mutex_lock(&most->aim->io_mutex);
+		most->aim->most = NULL;
+		mutex_unlock(&most->aim->io_mutex);
+	}
+	most->cfg = NULL;
+	most->iface = NULL;
+	most->channel_id = 0;
 	return 0;
 }
 
@@ -771,7 +723,6 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 {
 	struct sync_fmt_param *param;
 	struct mostcore_channel *most;
-	struct aim_channel *c;
 	int mlb150_id;
 	int err = -EINVAL;
 	char *s, *sp;
@@ -783,50 +734,32 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 	if (!(cfg->data_type == MOST_CH_SYNC ||
 	      cfg->data_type == MOST_CH_ISOC))
 		goto fail;
-	s = strchr(name, '.'); /* mlb150 channel id */
-	if (!s)
+	s = name; /* mlb150 channel id */
+	if (!*s)
 		goto fail;
-	sp = strchr(s + 1, '/'); /* parameters */
+	sp = strchr(s, '/'); /* parameters */
 	if (sp)
 		*sp++ = '\0';
-	if (kstrtoint(s + 1, 0, &mlb150_id)) {
-		pr_debug("invalid mlb ch: %s\n", s + 1);
-		goto fail;
-	}
-	foreach_aim_channel(c)
-		if (memcmp(name, c->name, s - name) == 0 &&
-		    c->name[s - name] == '\0')
-			break;
-	if (ch_not_found(c)) {
+	if (kstrtoint(s, 0, &mlb150_id) ||
+	    mlb150_id < MLB_FIRST_CHANNEL ||
+	    mlb150_id > MLB_LAST_CHANNEL) {
+		pr_debug("invalid mlb ch: %s\n", s);
 		err = -ENXIO;
 		goto fail;
 	}
+	most = mlb_channels + mlb150_id;
 	err = -EBUSY;
-	mutex_lock(&c->io_mutex);
-	list_for_each_entry(most, &c->most, head)
-		if (most->mlb150_id == mlb150_id)
-			goto unlock;
-	most = kzalloc(sizeof(*most), GFP_KERNEL);
-	if (!most) {
-		err = -ENOMEM;
-		goto unlock;
-	}
-	most->mlb150_id = mlb150_id;
+	if (most->cfg)
+		goto fail;
+	err = 0;
 	most->cfg = cfg;
-	most->aim = c;
 	for (param = most->sync_params;
 	     param < most->sync_params + ARRAY_SIZE(most->sync_params);
 	     ++param)
 		param->fpt = 255;
 	remember_channel(iface, channel_id, most);
-	list_add(&most->head, &c->most);
-	err = 0;
-unlock:
-	if (sp) {
+	if (sp)
 		parse_mostcore_channel_params(most, sp);
-		err = 0;
-	}
-	mutex_unlock(&c->io_mutex);
 fail:
 	return err;
 }
@@ -987,7 +920,6 @@ static int __init mod_init(void)
 		} else
 			strlcpy(c->name, "isoc", sizeof(c->name));
 		c->devno = MKDEV(MAJOR(aim_devno), MINOR_BASE + c - aim_channels);
-		INIT_LIST_HEAD(&c->most);
 		spin_lock_init(&c->unlink);
 		INIT_KFIFO(c->fifo);
 		init_waitqueue_head(&c->wq);
