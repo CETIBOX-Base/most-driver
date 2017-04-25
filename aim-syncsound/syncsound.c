@@ -502,7 +502,7 @@ static void parse_mostcore_channel_params(struct mostcore_channel *most, char *s
 		if (kstrtoint(s, 0, &fpt))
 			return;
 		most->fpt[cn][ss] = fpt;
-		pr_debug("mode %dx%d fpt %d\n", cn, 8 * ss, fpt);
+		/* pr_debug("mode %dx%d fpt %d\n", cn, 8 * ss, fpt); */
 		s = sp + strspn(sp, " \t\r\n");
 	} while (*s);
 }

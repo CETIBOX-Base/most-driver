@@ -760,7 +760,7 @@ static void parse_mostcore_channel_params(struct mostcore_channel *most, char *s
 		if ((uint)mode >= ARRAY_SIZE(most->sync_params))
 			return;
 		most->sync_params[mode].fpt = fpt;
-		pr_debug("mode %d fpt %d\n", (int)mode, fpt);
+		/* pr_debug("mode %d fpt %d\n", (int)mode, fpt); */
 		s = sp + strspn(sp, " \t\r\n");
 	} while (*s);
 }
