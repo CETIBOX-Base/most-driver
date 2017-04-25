@@ -88,6 +88,9 @@ struct aim_channel {
 	struct device_attribute dump_attr;
 };
 
+struct sync_fmt_param {
+	int fpt; /* USB frames-per-transaction value */
+};
 struct mostcore_channel {
 	struct list_head head;
 	struct most_interface *iface;
@@ -97,6 +100,7 @@ struct mostcore_channel {
 	int started;
 	struct aim_channel *aim;
 	struct mostcore_channel *next; /* used by most->aim channel mapping */
+	struct sync_fmt_param sync_params[16];
 };
 
 #define to_channel(d) container_of(d, struct aim_channel, cdev)
@@ -515,6 +519,7 @@ static int mlb150_sync_chan_startup(struct aim_channel *c, uint accmode,
 		goto unlock;
 	}
 	list_move(&most->head, &c->most);
+	most->cfg->packets_per_xact = most->sync_params[startup_mode].fpt;
 	most->cfg->subbuffer_size = bytes_per_frame;
 	most->cfg->buffer_size = max(SYNC_BUFFER_DEP(bytes_per_frame),
 				     c->mlb150_sync_buf_size);
@@ -721,15 +726,55 @@ static int aim_disconnect_channel(struct most_interface *iface, int channel_id)
 	return 0;
 }
 
+static void parse_mostcore_channel_params(struct mostcore_channel *most, char *s)
+{
+	enum mlb_sync_ch_startup_mode mode;
+	int fpt;
+
+	do {
+		char *sp;
+
+		if (strncasecmp(s, "1x16,", 5) == 0)
+			mode = most->cfg->direction == MOST_CH_RX ?
+				MLB_SYNC_MONO_RX : MLB_SYNC_MONO_TX;
+		else if (strncasecmp(s, "2x16,", 5) == 0)
+			mode = most->cfg->direction == MOST_CH_RX ?
+				MLB_SYNC_STEREO_RX : MLB_SYNC_STEREO_TX;
+		else if (strncasecmp(s, "2x24,", 5) == 0)
+			mode = most->cfg->direction == MOST_CH_RX ?
+				MLB_SYNC_STEREOHQ_RX : MLB_SYNC_STEREOHQ_TX;
+		else if (strncasecmp(s, "6x16,", 5) == 0)
+			mode = most->cfg->direction == MOST_CH_RX ?
+				MLB_SYNC_51_RX : MLB_SYNC_51_TX;
+		else if (strncasecmp(s, "6x24,", 5) == 0)
+			mode = most->cfg->direction == MOST_CH_RX ?
+				MLB_SYNC_51HQ_RX : MLB_SYNC_51HQ_TX;
+		else
+			return;
+		s += 5;
+		sp = s + strcspn(s, " \t\r\n");
+		if (*sp)
+			*sp++ = '\0';
+		if (kstrtoint(s, 0, &fpt))
+			return;
+		if ((uint)mode >= ARRAY_SIZE(most->sync_params))
+			return;
+		most->sync_params[mode].fpt = fpt;
+		pr_debug("mode %d fpt %d\n", (int)mode, fpt);
+		s = sp + strspn(sp, " \t\r\n");
+	} while (*s);
+}
+
 static int aim_probe(struct most_interface *iface, int channel_id,
 		     struct most_channel_config *cfg,
 		     struct kobject *parent, char *name)
 {
+	struct sync_fmt_param *param;
 	struct mostcore_channel *most;
 	struct aim_channel *c;
 	int mlb150_id;
 	int err = -EINVAL;
-	char *s;
+	char *s, *sp;
 
 	pr_debug("iface %p, channel %d, cfg %p, parent %p, name %s\n",
 		 iface, channel_id, cfg, parent, name);
@@ -738,9 +783,16 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 	if (!(cfg->data_type == MOST_CH_SYNC ||
 	      cfg->data_type == MOST_CH_ISOC))
 		goto fail;
-	s = strchr(name, '.');
-	if (!s || kstrtoint(s + 1, 0, &mlb150_id))
+	s = strchr(name, '.'); /* mlb150 channel id */
+	if (!s)
 		goto fail;
+	sp = strchr(s + 1, '/'); /* parameters */
+	if (sp)
+		*sp++ = '\0';
+	if (kstrtoint(s + 1, 0, &mlb150_id)) {
+		pr_debug("invalid mlb ch: %s\n", s + 1);
+		goto fail;
+	}
 	foreach_aim_channel(c)
 		if (memcmp(name, c->name, s - name) == 0 &&
 		    c->name[s - name] == '\0')
@@ -762,10 +814,18 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 	most->mlb150_id = mlb150_id;
 	most->cfg = cfg;
 	most->aim = c;
+	for (param = most->sync_params;
+	     param < most->sync_params + ARRAY_SIZE(most->sync_params);
+	     ++param)
+		param->fpt = 255;
 	remember_channel(iface, channel_id, most);
 	list_add(&most->head, &c->most);
 	err = 0;
 unlock:
+	if (sp) {
+		parse_mostcore_channel_params(most, sp);
+		err = 0;
+	}
 	mutex_unlock(&c->io_mutex);
 fail:
 	return err;

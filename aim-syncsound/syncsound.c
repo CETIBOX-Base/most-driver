@@ -41,6 +41,7 @@ struct mostcore_channel {
 	int channel_id;
 	struct most_interface *iface;
 	struct most_channel_config *cfg;
+	int fpt[6 /* number of channels */][4 /* sample size, bytes */];
 };
 
 struct channel {
@@ -52,7 +53,6 @@ struct channel {
 	unsigned int period_pos;
 	unsigned int buffer_pos;
 	bool is_stream_running, started;
-	int packets_per_xact;
 	int buffer_size;
 
 	struct task_struct *playback_task;
@@ -291,15 +291,16 @@ static int pcm_close_capture(struct snd_pcm_substream *substream)
 }
 
 static void set_most_config(const struct channel *channel,
-			    struct most_channel_config *cfg,
+			    const struct mostcore_channel *most,
 			    const struct snd_pcm_hw_params *hw_params)
 {
 	int width = snd_pcm_format_physical_width(params_format(hw_params));
 
-	if (channel->packets_per_xact != -1)
-		cfg->packets_per_xact = channel->packets_per_xact;
-	cfg->subbuffer_size = width * params_channels(hw_params) / BITS_PER_BYTE;
-	cfg->buffer_size = params_period_bytes(hw_params);
+	most->cfg->packets_per_xact =
+		most->fpt[params_channels(hw_params)][width / BITS_PER_BYTE];
+	most->cfg->subbuffer_size =
+		width * params_channels(hw_params) / BITS_PER_BYTE;
+	most->cfg->buffer_size = params_period_bytes(hw_params);
 }
 
 static int pcm_hw_params(struct snd_pcm_substream *substream,
@@ -325,7 +326,7 @@ static int pcm_hw_params_play(struct snd_pcm_substream *substream,
 	err = pcm_hw_params(substream, hw_params);
 	if (err < 0)
 		return err;
-	set_most_config(channel, channel->tx.cfg, hw_params);
+	set_most_config(channel, &channel->tx, hw_params);
 	return 0;
 }
 
@@ -339,7 +340,7 @@ static int pcm_hw_params_capture(struct snd_pcm_substream *substream,
 	err = pcm_hw_params(substream, hw_params);
 	if (err < 0)
 		return err;
-	set_most_config(channel, channel->rx.cfg, hw_params);
+	set_most_config(channel, &channel->rx, hw_params);
 	pr_debug("channels %d, buffer bytes %d, period bytes %d, frame size %d, sample size %d\n",
 		 params_channels(hw_params),
 		 params_buffer_bytes(hw_params),
@@ -479,12 +480,40 @@ static const struct snd_pcm_ops capture_ops = {
 	.mmap       = snd_pcm_lib_mmap_vmalloc,
 };
 
+static void parse_mostcore_channel_params(struct mostcore_channel *most, char *s)
+{
+	int fpt;
+
+	do {
+		char *sp;
+		uint cn, ss;
+
+		cn = (*s++) - '0';
+		if (*s++ != 'x')
+			return;
+		ss = (s[0] - '0') * 10 + (s[1] - '0');
+		ss /= 8;
+		s += 2;
+		if (*s++ != ',')
+			return;
+		sp = s + strcspn(s, " \t\r\n");
+		if (*sp)
+			*sp++ = '\0';
+		if (kstrtoint(s, 0, &fpt))
+			return;
+		most->fpt[cn][ss] = fpt;
+		pr_debug("mode %dx%d fpt %d\n", cn, 8 * ss, fpt);
+		s = sp + strspn(sp, " \t\r\n");
+	} while (*s);
+}
+
 static int probe_channel(struct most_interface *iface, int channel_id,
 			 struct most_channel_config *cfg,
 			 struct kobject *parent, char *args)
 {
 	int syncsound_id;
 	struct channel *channel;
+	char *sp;
 
 	if (!iface)
 		return -EINVAL;
@@ -505,6 +534,13 @@ static int probe_channel(struct most_interface *iface, int channel_id,
 		++args;
 	if (!*args)
 		return -EINVAL;
+	sp = strchr(args, '/');
+	if (sp)
+		*sp++ = '\0';
+	else {
+		for (sp = args; isdigit(*sp); ++sp);
+		*sp = '\0';
+	}
 	if (kstrtoint(args, 0, &syncsound_id))
 		return -EINVAL;
 	list_for_each_entry(channel, &dev_list, list)
@@ -516,17 +552,13 @@ static int probe_channel(struct most_interface *iface, int channel_id,
 		channel->rx.iface = iface;
 		channel->rx.channel_id = channel_id;
 		channel->rx.cfg = cfg;
+		parse_mostcore_channel_params(&channel->rx, sp);
 	} else {
 		channel->tx.iface = iface;
 		channel->tx.channel_id = channel_id;
 		channel->tx.cfg = cfg;
+		parse_mostcore_channel_params(&channel->tx, sp);
 	}
-	if (channel->packets_per_xact == -1)
-		channel->packets_per_xact = cfg->packets_per_xact;
-	/*
-	 * buffer_size is not taken from the mostcore configuration
-	 * to keep the syncsound buffer size calculation by default.
-	 */
 	return 0;
 }
 
@@ -631,22 +663,6 @@ struct syncsound_attr {
 	struct channel *channel;
 	struct device_attribute dev;
 };
-static ssize_t packets_per_xact_store(struct device *dev, struct device_attribute *dev_attr,
-				      const char *buf, size_t count)
-{
-	struct syncsound_attr *attr = container_of(dev_attr, struct syncsound_attr, dev);
-	int ret = kstrtoint(buf, 0, &attr->channel->packets_per_xact);
-
-	return ret ? ret : count;
-}
-static ssize_t packets_per_xact_show(struct device *dev,
-				     struct device_attribute *dev_attr,
-				     char *buf)
-{
-	struct syncsound_attr *attr = container_of(dev_attr, struct syncsound_attr, dev);
-
-	return sprintf(buf, "%d ", attr->channel->packets_per_xact);
-}
 static ssize_t buffer_size_store(struct device *dev, struct device_attribute *dev_attr,
 				      const char *buf, size_t count)
 {
@@ -664,10 +680,8 @@ static ssize_t buffer_size_show(struct device *dev,
 	return sprintf(buf, "%d ", attr->channel->buffer_size);
 }
 
-static DEVICE_ATTR_RW(packets_per_xact);
 static DEVICE_ATTR_RW(buffer_size);
 static const struct device_attribute *syncsound_attrs[] = {
-	&dev_attr_packets_per_xact,
 	&dev_attr_buffer_size,
 };
 static struct attribute *dev_attrs[SNDRV_CARDS * ARRAY_SIZE(syncsound_attrs) + 1];
@@ -692,6 +706,25 @@ static void __init init_channel_attrs(int syncsound_id, struct syncsound_attr *a
 	}
 }
 
+static void __init init_channel(struct channel *channel)
+{
+	uint c, s;
+
+	channel->rx.cfg = NULL;
+	channel->rx.iface = NULL;
+	channel->rx.channel_id = 0;
+	channel->tx.cfg = NULL;
+	channel->tx.iface = NULL;
+	channel->tx.channel_id = 0;
+	channel->buffer_size = -1;
+	for (c = 0; c < ARRAY_SIZE(channel->rx.fpt); ++c)
+		for (s = 0; s < ARRAY_SIZE(channel->rx.fpt[0]); ++s)
+			channel->rx.fpt[c][s] = 255;
+	for (c = 0; c < ARRAY_SIZE(channel->tx.fpt); ++c)
+		for (s = 0; s < ARRAY_SIZE(channel->tx.fpt[0]); ++s)
+			channel->tx.fpt[c][s] = 255;
+}
+
 static int __init mod_init(void)
 {
 	int ret, i;
@@ -714,15 +747,8 @@ static int __init mod_init(void)
 		struct snd_pcm *pcm;
 		struct channel *channel = &channels[i];
 
-		channel->rx.cfg = NULL;
-		channel->rx.iface = NULL;
-		channel->rx.channel_id = 0;
-		channel->tx.cfg = NULL;
-		channel->tx.iface = NULL;
-		channel->tx.channel_id = 0;
+		init_channel(channel);
 		channel->syncsound_id = i;
-		channel->packets_per_xact = 255;
-		channel->buffer_size = -1;
 		channel->pcm_hardware = most_hardware;
 		init_waitqueue_head(&channel->playback_waitq);
 		strlcpy(card->driver, "MLB_Sync_Driver", sizeof(card->driver));
