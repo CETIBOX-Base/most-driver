@@ -716,9 +716,8 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 	int err = -EINVAL;
 	char *s, *sp;
 
-	pr_debug("iface %p, channel %d, cfg %p, parent %p, name %s\n",
-		 iface, channel_id, cfg, parent, name);
-	if (!iface || !cfg || !parent || !name)
+	pr_debug("%s.ch%d %s\n", iface->description, channel_id, name);
+	if (!iface || !cfg || !name)
 		goto fail;
 	if (!(cfg->data_type == MOST_CH_SYNC ||
 	      cfg->data_type == MOST_CH_ISOC))
@@ -749,6 +748,8 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 	remember_channel(iface, channel_id, most);
 	if (sp)
 		parse_mostcore_channel_params(most, sp);
+	pr_debug("mlb150 ch %d linked to %s.ch%d\n", mlb150_id,
+		 iface->description, channel_id);
 fail:
 	return err;
 }
