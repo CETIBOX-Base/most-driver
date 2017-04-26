@@ -596,9 +596,6 @@ static void parse_mostcore_channel_params(struct mostcore_channel *most, char *s
 			*sp++ = '\0';
 		if (kstrtoint(s, 0, &fpt))
 			return;
-		if (cn >= ARRAY_SIZE(most->fpt) || 
-		    ss / 8 >= ARRAY_SIZE(most->fpt[0]))
-			pr_debug("cn %u, ss %u\n", cn, ss);
 		most->fpt[cn][ss / 8] = fpt;
 		/* pr_debug("mode %dx%d fpt %d\n", cn, 8 * ss, fpt); */
 		s = sp + strspn(sp, " \t\r\n");
@@ -643,15 +640,6 @@ static int probe_channel(struct most_interface *iface, int channel_id,
 	parse_mostcore_channel_params(most, sp);
 	pr_debug("mlb150 ch %d linked to %s.ch%d cfg %p\n", mlb150_id,
 		 most->iface->description, most->channel_id, most->cfg);
-	{
-		uint i;
-		for (i = 0; i < ARRAY_SIZE(mlb_channels); ++i)
-			if (mlb_channels[i].iface)
-				pr_debug("[%u] = {%p.%d, %p}\n", i,
-					 mlb_channels[i].iface,
-					 mlb_channels[i].channel_id,
-					 mlb_channels[i].cfg);
-	}
 	return 0;
 }
 
