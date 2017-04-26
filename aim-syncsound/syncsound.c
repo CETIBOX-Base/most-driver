@@ -35,22 +35,50 @@ static struct list_head dev_list;
 static struct most_aim aim; /* forward declaration */
 static struct snd_card *card;
 
+static u32 mlb_sync_channel_addresses[MLB_MAX_SYNC_DEVICES] = {
+/*       Tx           Rx */
+	(8  << 16) |  7,
+	(10 << 16) |  9,
+	(12 << 16) | 11,
+	(14 << 16) | 13,
+	(16 << 16) | 15,
+	(18 << 16) | 17,
+	(10 << 16) |  9 /* same as sync1 */
+};
+
 struct mostcore_channel {
 	int channel_id;
 	struct most_interface *iface;
 	struct most_channel_config *cfg;
-	int fpt[6 /* number of channels */][4 /* sample size, bytes */];
+	bool started;
+	int fpt[7 /* number of channels +1 */][5 /* sample size +1, bytes */];
 };
 
+static struct mostcore_channel mlb_channels[MLB_LAST_CHANNEL + 1];
+static inline struct mostcore_channel *get_most(int syncsound_id,
+						enum most_channel_direction d)
+{
+	u16 mlb150_id;
+
+	if ((uint)syncsound_id >= ARRAY_SIZE(mlb_sync_channel_addresses))
+		return NULL;
+	mlb150_id = d == MOST_CH_RX ?
+		mlb_sync_channel_addresses[syncsound_id]:
+		mlb_sync_channel_addresses[syncsound_id] >> 16;
+	if (mlb150_id >= ARRAY_SIZE(mlb_channels))
+		return NULL;
+	return &mlb_channels[mlb150_id];
+}
+
 struct channel {
-	struct mostcore_channel rx, tx;
+	struct mostcore_channel *most;
 	int syncsound_id;
 	struct snd_pcm_substream *substream;
 	struct snd_pcm_hardware pcm_hardware;
 	struct list_head list;
 	unsigned int period_pos;
 	unsigned int buffer_pos;
-	bool is_stream_running, started;
+	bool is_stream_running;
 	int buffer_size;
 
 	struct task_struct *playback_task;
@@ -131,24 +159,15 @@ static void most_to_alsa_copy32(void *alsa, void *most, unsigned int bytes)
 	swap_copy32(alsa, most, bytes);
 }
 
-static struct channel *get_channel_rx(struct most_interface *iface,
+static struct channel *get_channel(struct most_interface *iface,
 				   int channel_id)
 {
 	struct channel *channel;
 
 	list_for_each_entry(channel, &dev_list, list)
-		if (channel->rx.iface == iface && channel->rx.channel_id == channel_id)
-			return channel;
-	return NULL;
-}
-
-static struct channel *get_channel_tx(struct most_interface *iface,
-				   int channel_id)
-{
-	struct channel *channel;
-
-	list_for_each_entry(channel, &dev_list, list)
-		if (channel->tx.iface == iface && channel->tx.channel_id == channel_id)
+		if (channel->most &&
+		    channel->most->iface == iface &&
+		    channel->most->channel_id == channel_id)
 			return channel;
 	return NULL;
 }
@@ -196,24 +215,24 @@ static int playback_thread(void *data)
 	while (!kthread_should_stop()) {
 		struct mbo *mbo = NULL;
 		bool period_elapsed = false;
+		struct mostcore_channel *most = channel->most;
+		int ret;
 
-		wait_event_interruptible(
+		ret = wait_event_interruptible(
 			channel->playback_waitq,
 			kthread_should_stop() ||
-			(channel->is_stream_running &&
-			 (mbo = most_get_mbo(channel->tx.iface,
-					     channel->tx.channel_id,
+			(channel->is_stream_running && most &&
+			 (mbo = most_get_mbo(most->iface, most->channel_id,
 					     &aim))));
-		if (!mbo)
+		if (ret || !mbo)
 			continue;
-
 		if (channel->is_stream_running)
 			period_elapsed = copy_data(channel, mbo->virt_address,
-						   mbo->buffer_length / channel->tx.cfg->subbuffer_size,
-						   channel->tx.cfg->subbuffer_size);
+				mbo->buffer_length / most->cfg->subbuffer_size,
+				most->cfg->subbuffer_size);
 		else
 			memset(mbo->virt_address, 0, mbo->buffer_length);
-
+		//pr_debug("%p %u\n", mbo, mbo->buffer_length);
 		most_submit_mbo(mbo);
 		if (period_elapsed)
 			snd_pcm_period_elapsed(channel->substream);
@@ -235,32 +254,46 @@ static void update_pcm_hw_from_cfg(struct channel *channel,
 	channel->pcm_hardware.buffer_bytes_max = buf_size * cfg->num_buffers;
 }
 
-static int pcm_open_play(struct snd_pcm_substream *substream)
+static int pcm_open(struct snd_pcm_substream *substream,
+		    enum most_channel_direction dir)
 {
+	struct mostcore_channel *most;
 	struct channel *channel = substream->private_data;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 
-	pr_debug("\n");
-	if (!channel->tx.iface)
+	pr_debug("%d: %s\n", channel->syncsound_id, dir == MOST_CH_TX ? "tx" : "rx");
+	if (channel->most)
+		return -EBUSY;
+	most = get_most(channel->syncsound_id, dir);
+	if (!most || !most->cfg)
 		return -ENOTCONN;
+	pr_debug("%p (%d) cfg %p\n", most, most - mlb_channels, most->cfg);
+	channel->most = most;
 	channel->substream = substream;
-	update_pcm_hw_from_cfg(channel, channel->tx.cfg);
+	update_pcm_hw_from_cfg(channel, most->cfg);
 	runtime->hw = channel->pcm_hardware;
 	return 0;
 }
 
+static int pcm_open_play(struct snd_pcm_substream *substream)
+{
+	return pcm_open(substream, MOST_CH_TX);
+}
+
 static int pcm_open_capture(struct snd_pcm_substream *substream)
 {
-	struct channel *channel = substream->private_data;
-	struct snd_pcm_runtime *runtime = substream->runtime;
+	return pcm_open(substream, MOST_CH_RX);
+}
 
-	pr_debug("\n");
-	if (!channel->rx.iface)
-		return -ENOTCONN;
-	channel->substream = substream;
-	update_pcm_hw_from_cfg(channel, channel->rx.cfg);
-	runtime->hw = channel->pcm_hardware;
-	return 0;
+static void stop_most(struct channel *channel)
+{
+	struct mostcore_channel *most = channel->most;
+
+	if (most && most->started) {
+		most_stop_channel(most->iface, most->channel_id, &aim);
+		most->started = false;
+	}
+	channel->most = NULL;
 }
 
 static int pcm_close_play(struct snd_pcm_substream *substream)
@@ -268,11 +301,10 @@ static int pcm_close_play(struct snd_pcm_substream *substream)
 	struct channel *channel = substream->private_data;
 
 	pr_debug("\n");
-	kthread_stop(channel->playback_task);
-	if (channel->started)
-		most_stop_channel(channel->tx.iface, channel->tx.channel_id, &aim);
+	if (!IS_ERR_OR_NULL(channel->playback_task))
+		kthread_stop(channel->playback_task);
+	stop_most(channel);
 	channel->substream = NULL;
-	channel->started = false;
 	return 0;
 }
 
@@ -281,10 +313,8 @@ static int pcm_close_capture(struct snd_pcm_substream *substream)
 	struct channel *channel = substream->private_data;
 
 	pr_debug("\n");
-	if (channel->started)
-		most_stop_channel(channel->rx.iface, channel->rx.channel_id, &aim);
+	stop_most(channel);
 	channel->substream = NULL;
-	channel->started = false;
 	return 0;
 }
 
@@ -324,7 +354,7 @@ static int pcm_hw_params_play(struct snd_pcm_substream *substream,
 	err = pcm_hw_params(substream, hw_params);
 	if (err < 0)
 		return err;
-	set_most_config(channel, &channel->tx, hw_params);
+	set_most_config(channel, channel->most, hw_params);
 	return 0;
 }
 
@@ -338,12 +368,12 @@ static int pcm_hw_params_capture(struct snd_pcm_substream *substream,
 	err = pcm_hw_params(substream, hw_params);
 	if (err < 0)
 		return err;
-	set_most_config(channel, &channel->rx, hw_params);
+	set_most_config(channel, channel->most, hw_params);
 	pr_debug("channels %d, buffer bytes %d, period bytes %d, frame size %d, sample size %d\n",
 		 params_channels(hw_params),
 		 params_buffer_bytes(hw_params),
 		 params_period_bytes(hw_params),
-		 channel->rx.cfg->subbuffer_size,
+		 channel->most->cfg->subbuffer_size,
 		 snd_pcm_format_physical_width(params_format(hw_params)));
 	return 0;
 }
@@ -358,10 +388,15 @@ static int pcm_prepare_play(struct snd_pcm_substream *substream)
 {
 	int err;
 	struct channel *channel = substream->private_data;
+	struct mostcore_channel *most = channel->most;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	int width = snd_pcm_format_physical_width(runtime->format);
 
 	pr_debug("\n");
+	if (!most)
+		return -ENXIO;
+	if (most->started)
+		return 0; /* underrun handling */
 	channel->copy_fn = NULL;
 	if (snd_pcm_format_big_endian(runtime->format) || width == 8)
 		channel->copy_fn = alsa_to_most_memcpy;
@@ -380,26 +415,33 @@ static int pcm_prepare_play(struct snd_pcm_substream *substream)
 	channel->playback_task = kthread_run(playback_thread, channel, "most");
 	if (IS_ERR(channel->playback_task)) {
 		err = PTR_ERR(channel->playback_task);
-		pr_debug("Couldn't start thread: %d\n", err);
+		pr_debug("kthread_run: %d\n", err);
 		return -ENOMEM;
 	}
-	err = most_start_channel(channel->tx.iface, channel->tx.channel_id, &aim);
+	err = most_start_channel(most->iface, most->channel_id, &aim);
 	if (err) {
-		pr_debug("most_start_channel() failed: %d\n", err);
+		pr_debug("most_start_channel failed: %d\n", err);
 		kthread_stop(channel->playback_task);
+		channel->playback_task = NULL;
 		return -EBUSY;
 	}
-	channel->started = true;
+	most->started = true;
 	return 0;
 }
 
 static int pcm_prepare_capture(struct snd_pcm_substream *substream)
 {
 	struct channel *channel = substream->private_data;
+	struct mostcore_channel *most = channel->most;
 	struct snd_pcm_runtime *runtime = substream->runtime;
 	int width = snd_pcm_format_physical_width(runtime->format);
+	int err;
 
 	pr_debug("\n");
+	if (!most)
+		return -ENXIO;
+	if (most->started)
+		return -EBUSY;
 	channel->copy_fn = NULL;
 	if (snd_pcm_format_big_endian(runtime->format) || width == 8)
 		channel->copy_fn = most_to_alsa_memcpy;
@@ -415,11 +457,12 @@ static int pcm_prepare_capture(struct snd_pcm_substream *substream)
 	}
 	channel->period_pos = 0;
 	channel->buffer_pos = 0;
-	if (most_start_channel(channel->rx.iface, channel->rx.channel_id, &aim)) {
-		pr_err("most_start_channel() failed!\n");
+	err = most_start_channel(most->iface, most->channel_id, &aim);
+	if (err) {
+		pr_debug("most_start_channel failed: %d\n", err);
 		return -EBUSY;
 	}
-	channel->started = true;
+	most->started = true;
 	return 0;
 }
 
@@ -478,6 +521,60 @@ static const struct snd_pcm_ops capture_ops = {
 	.mmap       = snd_pcm_lib_mmap_vmalloc,
 };
 
+static int rx_completion(struct mbo *mbo)
+{
+	struct channel *channel = get_channel(mbo->ifp, mbo->hdm_channel_id);
+	struct most_channel_config *cfg;
+	bool period_elapsed = false;
+
+	if (!channel) {
+		pr_debug("invalid channel %d\n", mbo->hdm_channel_id);
+		return -EINVAL;
+	}
+	cfg = channel->most->cfg;
+	if (channel->is_stream_running)
+		period_elapsed = copy_data(channel, mbo->virt_address,
+			mbo->processed_length / cfg->subbuffer_size,
+			cfg->subbuffer_size);
+	most_put_mbo(mbo);
+
+	if (period_elapsed)
+		snd_pcm_period_elapsed(channel->substream);
+	return 0;
+}
+
+static int tx_completion(struct most_interface *iface, int channel_id)
+{
+	struct channel *channel = get_channel(iface, channel_id);
+
+	if (!channel) {
+		pr_debug("invalid channel %d\n", channel_id);
+		return -EINVAL;
+	}
+
+	wake_up_interruptible(&channel->playback_waitq);
+	pr_debug("TX\n");
+	return 0;
+}
+
+static int disconnect_channel(struct most_interface *iface, int channel_id)
+{
+	struct channel *channel;
+
+	channel = get_channel(iface, channel_id);
+	if (!channel) {
+		pr_err("sound_disconnect_channel(), invalid channel %d\n",
+		       channel_id);
+		return -EINVAL;
+	}
+	channel->most->started = false;
+	channel->most->iface = NULL;
+	channel->most->cfg = NULL;
+	channel->most->channel_id = 0;
+	channel->most = NULL;
+	return 0;
+}
+
 static void parse_mostcore_channel_params(struct mostcore_channel *most, char *s)
 {
 	int fpt;
@@ -499,7 +596,10 @@ static void parse_mostcore_channel_params(struct mostcore_channel *most, char *s
 			*sp++ = '\0';
 		if (kstrtoint(s, 0, &fpt))
 			return;
-		most->fpt[cn][ss] = fpt;
+		if (cn >= ARRAY_SIZE(most->fpt) || 
+		    ss / 8 >= ARRAY_SIZE(most->fpt[0]))
+			pr_debug("cn %u, ss %u\n", cn, ss);
+		most->fpt[cn][ss / 8] = fpt;
 		/* pr_debug("mode %dx%d fpt %d\n", cn, 8 * ss, fpt); */
 		s = sp + strspn(sp, " \t\r\n");
 	} while (*s);
@@ -509,29 +609,17 @@ static int probe_channel(struct most_interface *iface, int channel_id,
 			 struct most_channel_config *cfg,
 			 struct kobject *parent, char *args)
 {
-	int syncsound_id;
-	struct channel *channel;
+	int mlb150_id;
+	struct mostcore_channel *most;
 	char *sp;
 
+	pr_debug("%s.ch%d %s\n", iface->description, channel_id, args);
 	if (!iface)
 		return -EINVAL;
 	if (cfg->data_type != MOST_CH_SYNC) {
 		pr_err("Incompatible channel type\n");
 		return -EINVAL;
 	}
-	if (cfg->direction == MOST_CH_RX)
-		channel = get_channel_rx(iface, channel_id);
-	else if (cfg->direction == MOST_CH_TX)
-		channel = get_channel_tx(iface, channel_id);
-	if (channel) {
-		pr_err("channel (%s:%d) is already linked to MLB_SYNC%d\n",
-		       iface->description, channel_id, channel->syncsound_id);
-		return -EINVAL;
-	}
-	while (*args && !isdigit(*args))
-		++args;
-	if (!*args)
-		return -EINVAL;
 	sp = strchr(args, '/');
 	if (sp)
 		*sp++ = '\0';
@@ -539,85 +627,31 @@ static int probe_channel(struct most_interface *iface, int channel_id,
 		for (sp = args; isdigit(*sp); ++sp);
 		*sp = '\0';
 	}
-	if (kstrtoint(args, 0, &syncsound_id))
+	if (kstrtoint(args, 0, &mlb150_id))
 		return -EINVAL;
-	list_for_each_entry(channel, &dev_list, list)
-		if (channel->syncsound_id == syncsound_id)
-			break;
-	if (&channel->list == &dev_list)
-		return -ENOENT;
-	if (cfg->direction == MOST_CH_RX) {
-		channel->rx.iface = iface;
-		channel->rx.channel_id = channel_id;
-		channel->rx.cfg = cfg;
-		parse_mostcore_channel_params(&channel->rx, sp);
-	} else {
-		channel->tx.iface = iface;
-		channel->tx.channel_id = channel_id;
-		channel->tx.cfg = cfg;
-		parse_mostcore_channel_params(&channel->tx, sp);
-	}
-	return 0;
-}
-
-static int disconnect_channel(struct most_interface *iface, int channel_id)
-{
-	bool is_tx = true;
-	struct channel *channel;
-
-	channel = get_channel_rx(iface, channel_id);
-	if (channel)
-		is_tx = false;
-	else
-		channel = get_channel_tx(iface, channel_id);
-	if (!channel) {
-		pr_err("sound_disconnect_channel(), invalid channel %d\n",
-		       channel_id);
+	if ((uint)mlb150_id >= ARRAY_SIZE(mlb_channels))
 		return -EINVAL;
+	most = &mlb_channels[mlb150_id];
+	if (most->iface) {
+		pr_err("MLB150 channel %d already linked to %s:%d\n", mlb150_id,
+		       most->iface->description, most->channel_id);
+		return -EBUSY;
 	}
-	if (is_tx) {
-		channel->tx.iface = NULL;
-		channel->tx.channel_id = 0;
-		channel->tx.cfg = NULL;
-	} else {
-		channel->rx.iface = NULL;
-		channel->rx.channel_id = 0;
-		channel->rx.cfg = NULL;
+	most->iface = iface;
+	most->channel_id = channel_id;
+	most->cfg = cfg;
+	parse_mostcore_channel_params(most, sp);
+	pr_debug("mlb150 ch %d linked to %s.ch%d cfg %p\n", mlb150_id,
+		 most->iface->description, most->channel_id, most->cfg);
+	{
+		uint i;
+		for (i = 0; i < ARRAY_SIZE(mlb_channels); ++i)
+			if (mlb_channels[i].iface)
+				pr_debug("[%u] = {%p.%d, %p}\n", i,
+					 mlb_channels[i].iface,
+					 mlb_channels[i].channel_id,
+					 mlb_channels[i].cfg);
 	}
-	return 0;
-}
-
-static int rx_completion(struct mbo *mbo)
-{
-	struct channel *channel = get_channel_rx(mbo->ifp, mbo->hdm_channel_id);
-	bool period_elapsed = false;
-
-	if (!channel) {
-		pr_debug("invalid channel %d\n", mbo->hdm_channel_id);
-		return -EINVAL;
-	}
-
-	if (channel->is_stream_running)
-		period_elapsed = copy_data(channel, mbo->virt_address,
-					   mbo->processed_length / channel->rx.cfg->subbuffer_size,
-					   channel->rx.cfg->subbuffer_size);
-	most_put_mbo(mbo);
-
-	if (period_elapsed)
-		snd_pcm_period_elapsed(channel->substream);
-	return 0;
-}
-
-static int tx_completion(struct most_interface *iface, int channel_id)
-{
-	struct channel *channel = get_channel_tx(iface, channel_id);
-
-	if (!channel) {
-		pr_debug("invalid channel %d\n", channel_id);
-		return -EINVAL;
-	}
-
-	wake_up_interruptible(&channel->playback_waitq);
 	return 0;
 }
 
@@ -626,10 +660,10 @@ static int tx_completion(struct most_interface *iface, int channel_id)
  */
 static struct most_aim aim = {
 	.name = DRIVER_NAME,
-	.probe_channel = probe_channel,
-	.disconnect_channel = disconnect_channel,
 	.rx_completion = rx_completion,
 	.tx_completion = tx_completion,
+	.disconnect_channel = disconnect_channel,
+	.probe_channel = probe_channel,
 };
 
 extern u32 syncsound_get_num_devices(void); /* aim-mlb150 */
@@ -687,6 +721,7 @@ static struct attribute_group dev_attr_group = {
 	.name = "syncsound",
 	.attrs = dev_attrs,
 };
+
 static void __init init_channel_attrs(int syncsound_id, struct syncsound_attr *attr, struct channel *channel)
 {
 	struct syncsound_attr *t;
@@ -704,25 +739,6 @@ static void __init init_channel_attrs(int syncsound_id, struct syncsound_attr *a
 	}
 }
 
-static void __init init_channel(struct channel *channel)
-{
-	uint c, s;
-
-	channel->rx.cfg = NULL;
-	channel->rx.iface = NULL;
-	channel->rx.channel_id = 0;
-	channel->tx.cfg = NULL;
-	channel->tx.iface = NULL;
-	channel->tx.channel_id = 0;
-	channel->buffer_size = -1;
-	for (c = 0; c < ARRAY_SIZE(channel->rx.fpt); ++c)
-		for (s = 0; s < ARRAY_SIZE(channel->rx.fpt[0]); ++s)
-			channel->rx.fpt[c][s] = 255;
-	for (c = 0; c < ARRAY_SIZE(channel->tx.fpt); ++c)
-		for (s = 0; s < ARRAY_SIZE(channel->tx.fpt[0]); ++s)
-			channel->tx.fpt[c][s] = 255;
-}
-
 static int __init mod_init(void)
 {
 	int ret, i;
@@ -731,6 +747,14 @@ static int __init mod_init(void)
 	struct syncsound_attr *attr;
 
 	pr_info("init()\n");
+	for (i = 0; i < ARRAY_SIZE(mlb_channels); ++i) {
+		uint c, s;
+		struct mostcore_channel *most = mlb_channels + i;
+
+		for (c = 0; c < ARRAY_SIZE(most->fpt); ++c)
+			for (s = 0; s < ARRAY_SIZE(most->fpt[0]); ++s)
+				most->fpt[c][s] = 255;
+	}
 	INIT_LIST_HEAD(&dev_list);
 	ret = snd_card_new(NULL, -1, NULL, THIS_MODULE,
 			   max_pcms * sizeof(*channels) +
@@ -745,7 +769,8 @@ static int __init mod_init(void)
 		struct snd_pcm *pcm;
 		struct channel *channel = &channels[i];
 
-		init_channel(channel);
+		channel->most = NULL;
+		channel->buffer_size = -1;
 		channel->syncsound_id = i;
 		channel->pcm_hardware = most_hardware;
 		init_waitqueue_head(&channel->playback_waitq);
