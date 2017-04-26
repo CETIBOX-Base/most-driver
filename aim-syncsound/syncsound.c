@@ -739,9 +739,13 @@ static int __init mod_init(void)
 		uint c, s;
 		struct mostcore_channel *most = mlb_channels + i;
 
-		for (c = 0; c < ARRAY_SIZE(most->fpt); ++c)
-			for (s = 0; s < ARRAY_SIZE(most->fpt[0]); ++s)
-				most->fpt[c][s] = 255;
+		for (s = 0; s < ARRAY_SIZE(most->fpt[0]); ++s)
+			most->fpt[0][s] = 128;
+		for (c = 1; c < ARRAY_SIZE(most->fpt); ++c) {
+			most->fpt[c][0] = 128;
+			for (s = 1; s < ARRAY_SIZE(most->fpt[0]); ++s)
+				most->fpt[c][s] = 512 / (c * s * 8);
+		}
 	}
 	INIT_LIST_HEAD(&dev_list);
 	ret = snd_card_new(NULL, -1, NULL, THIS_MODULE,

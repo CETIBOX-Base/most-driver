@@ -105,7 +105,7 @@ static const struct most_channel_config sync_tx_cfg = {
 static const char AIM_MLB150[] = "mlb150";
 static const char AIM_SYNCSOUND[] = "syncsound";
 
-#define SYNC_FMT_CFG "1x16,128 2x16,128 2x24,128 6x16,64 6x24,16"
+#define SYNC_FMT_CFG "" /* "1x16,256 2x16,128 2x24,170 6x16,42 6x24,28" */
 static struct most_config_probe config_probes_mlb150[] = {
 	{
 		.ch_name = "ep01",

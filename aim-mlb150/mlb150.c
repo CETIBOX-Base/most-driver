@@ -81,6 +81,20 @@ struct aim_channel {
 struct sync_fmt_param {
 	int fpt; /* USB frames-per-transaction value */
 };
+
+static const struct sync_fmt_param def_fpt[] = {
+	[MLB_SYNC_MONO_RX    ] = { .fpt = 512 / 2 },
+	[MLB_SYNC_MONO_TX    ] = { .fpt = 512 / 2 },
+	[MLB_SYNC_STEREO_RX  ] = { .fpt = 512 / 4 },
+	[MLB_SYNC_STEREO_TX  ] = { .fpt = 512 / 4 },
+	[MLB_SYNC_51_RX      ] = { .fpt = 512 / 12 },
+	[MLB_SYNC_51_TX      ] = { .fpt = 512 / 12 },
+	[MLB_SYNC_51HQ_RX    ] = { .fpt = 512 / 18 },
+	[MLB_SYNC_51HQ_TX    ] = { .fpt = 512 / 18 },
+	[MLB_SYNC_STEREOHQ_RX] = { .fpt = 512 / 6 },
+	[MLB_SYNC_STEREOHQ_TX] = { .fpt = 512 / 6 },
+};
+
 struct mostcore_channel {
 	struct most_interface *iface;
 	struct most_channel_config *cfg;
@@ -88,7 +102,7 @@ struct mostcore_channel {
 	int started;
 	struct aim_channel *aim;
 	struct mostcore_channel *next; /* used by most->aim channel mapping */
-	struct sync_fmt_param sync_params[16];
+	struct sync_fmt_param sync_params[ARRAY_SIZE(def_fpt)];
 };
 
 #define to_channel(d) container_of(d, struct aim_channel, cdev)
@@ -697,7 +711,7 @@ static void parse_mostcore_channel_params(struct mostcore_channel *most, char *s
 		if (*sp)
 			*sp++ = '\0';
 		if (kstrtoint(s, 0, &fpt))
-			return;
+			fpt = def_fpt[mode].fpt;
 		if ((uint)mode >= ARRAY_SIZE(most->sync_params))
 			return;
 		most->sync_params[mode].fpt = fpt;
@@ -741,10 +755,7 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 		goto fail;
 	err = 0;
 	most->cfg = cfg;
-	for (param = most->sync_params;
-	     param < most->sync_params + ARRAY_SIZE(most->sync_params);
-	     ++param)
-		param->fpt = 255;
+	memcpy(most->sync_params, def_fpt, sizeof(param->fpt));
 	remember_channel(iface, channel_id, most);
 	if (sp)
 		parse_mostcore_channel_params(most, sp);
