@@ -26,11 +26,9 @@
 #include <linux/kthread.h>
 #include <linux/ctype.h>
 #include "mostcore.h"
+#include "mlb150_ext.h"
 
 #define DRIVER_NAME "syncsound"
-
-#define FCNT_VALUE 5
-#define SYNC_BUFFER_DEP(bpf) (4 * (1 << FCNT_VALUE) * (bpf))
 #define MAX_PERIOD_SIZE (8192) /* DIM2 restriction */
 
 static struct list_head dev_list;

@@ -24,6 +24,7 @@
 #include <linux/uaccess.h>
 #include "mostcore.h"
 #include "mlb150.h"
+#include "mlb150_ext.h"
 
 #define DRIVER_NAME "aim-mlb150"
 /*
@@ -31,18 +32,6 @@
  * excludes the first two minors of the original: ctrl and async (and opt3)
  */
 #define MINOR_BASE (2)
-
-#define MLB_FIRST_CHANNEL	(1)
-#define MLB_LAST_CHANNEL	(63)
-
-#define FCNT_VALUE 5
-
-/* return the buffer depth for the given bytes-per-frame */
-#define SYNC_BUFFER_DEP(bpf) (4 * (1 << FCNT_VALUE) * (bpf))
-
-#define SYNC_MIN_FRAME_SIZE (2) /* mono, 16bit sample */
-#define SYNC_DMA_MIN_SIZE       SYNC_BUFFER_DEP(SYNC_MIN_FRAME_SIZE) /* mono, 16bit sample */
-#define SYNC_DMA_MAX_SIZE       (0x1fff + 1) /* system memory buffer size in ADT */
 
 /* default number of sync channels which is used
    if module is loaded without parameters. */

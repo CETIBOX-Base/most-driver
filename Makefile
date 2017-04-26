@@ -22,7 +22,7 @@ CFLAGS_mlb150.o := -I$(src)/mostcore
 
 obj-m += aim_syncsound.o
 aim_syncsound-y := aim-syncsound/syncsound.o
-CFLAGS_syncsound.o := -I$(src)/mostcore
+CFLAGS_syncsound.o := -I$(src)/mostcore -I$(src)/aim-mlb150
 
 obj-m += aim_network.o
 aim_network-y := aim-network/networking.o
