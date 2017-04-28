@@ -35,7 +35,7 @@
 
 /* default number of sync channels which is used
    if module is loaded without parameters. */
-uint number_sync_channels = 7;
+static uint number_sync_channels = 7;
 module_param(number_sync_channels, uint, 0444);
 u32 syncsound_get_num_devices(void)
 {
@@ -44,7 +44,7 @@ u32 syncsound_get_num_devices(void)
 EXPORT_SYMBOL(syncsound_get_num_devices);
 
 /* number of isochronous channels to provide by default */
-uint number_isoc_channels = 1;
+static uint number_isoc_channels = 1;
 module_param_named(isoc_channels, number_isoc_channels, uint, 0444);
 
 static dev_t aim_devno;

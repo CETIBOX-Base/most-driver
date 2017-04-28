@@ -16,5 +16,7 @@
 #define SYNC_DMA_MIN_SIZE       SYNC_BUFFER_DEP(SYNC_MIN_FRAME_SIZE) /* mono, 16bit sample */
 #define SYNC_DMA_MAX_SIZE       (0x1fff + 1) /* system memory buffer size in ADT */
 
+u32 syncsound_get_num_devices(void);
+
 #endif /* _MLB150_EXT_H_ */
 
