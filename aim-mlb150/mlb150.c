@@ -335,7 +335,7 @@ static int start_most(struct aim_channel *c)
 	ret = most_start_channel(c->most->iface, c->most->channel_id, &aim);
 	if (!ret)
 		c->most->started = 1;
-	pr_debug("%s.%u (%s) subbuffer_size %u, buffer_size %u ret %d\n",
+	pr_debug("%s.%zd (%s) subbuffer_size %u, buffer_size %u ret %d\n",
 		 c->name, c->most - mlb_channels,
 		 c->most->cfg->direction == MOST_CH_RX ? "rx" : "tx",
 		 c->most->cfg->subbuffer_size, c->most->cfg->buffer_size, ret);
@@ -347,7 +347,7 @@ static void stop_most(struct aim_channel *c)
 {
 	struct mbo *mbo;
 
-	pr_debug("%s.%u (%s) shut down\n",
+	pr_debug("%s.%zd (%s) shut down\n",
 		 c->name, c->most - mlb_channels,
 		 c->most->cfg->direction == MOST_CH_RX ? "rx" : "tx");
 	if (c->most->started) {
