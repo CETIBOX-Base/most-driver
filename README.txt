@@ -21,6 +21,7 @@ The .ko files will be copied into the path designated by the INSTALL_MOD_PATH.
 The modules must be loaded in the order below:
 
     mostcore.ko
+    cfg-honda.ko
     hdm_usb.ko
     aim_network.ko
     aim_cdev.ko
