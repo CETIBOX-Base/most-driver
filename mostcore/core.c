@@ -37,7 +37,7 @@ static struct device *core_dev;
 static struct ida mdev_id;
 static int dummy_num_buffers;
 static struct list_head config_probes = LIST_HEAD_INIT(config_probes);
-struct mutex config_probes_mt; /* config_probes */
+static struct mutex config_probes_mt; /* config_probes */
 
 struct most_c_aim_obj {
 	struct most_aim *ptr;

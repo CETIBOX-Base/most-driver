@@ -35,7 +35,7 @@
 
 /* default number of sync channels which is used
    if module is loaded without parameters. */
-uint number_sync_channels = 7;
+static uint number_sync_channels = 7;
 module_param(number_sync_channels, uint, 0444);
 u32 syncsound_get_num_devices(void)
 {
@@ -44,7 +44,7 @@ u32 syncsound_get_num_devices(void)
 EXPORT_SYMBOL(syncsound_get_num_devices);
 
 /* number of isochronous channels to provide by default */
-uint number_isoc_channels = 1;
+static uint number_isoc_channels = 1;
 module_param_named(isoc_channels, number_isoc_channels, uint, 0444);
 
 static dev_t aim_devno;
@@ -335,7 +335,7 @@ static int start_most(struct aim_channel *c)
 	ret = most_start_channel(c->most->iface, c->most->channel_id, &aim);
 	if (!ret)
 		c->most->started = 1;
-	pr_debug("%s.%u (%s) subbuffer_size %u, buffer_size %u ret %d\n",
+	pr_debug("%s.%zd (%s) subbuffer_size %u, buffer_size %u ret %d\n",
 		 c->name, c->most - mlb_channels,
 		 c->most->cfg->direction == MOST_CH_RX ? "rx" : "tx",
 		 c->most->cfg->subbuffer_size, c->most->cfg->buffer_size, ret);
@@ -347,7 +347,7 @@ static void stop_most(struct aim_channel *c)
 {
 	struct mbo *mbo;
 
-	pr_debug("%s.%u (%s) shut down\n",
+	pr_debug("%s.%zd (%s) shut down\n",
 		 c->name, c->most - mlb_channels,
 		 c->most->cfg->direction == MOST_CH_RX ? "rx" : "tx");
 	if (c->most->started) {

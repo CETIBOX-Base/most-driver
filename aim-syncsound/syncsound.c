@@ -267,7 +267,7 @@ static int pcm_open(struct snd_pcm_substream *substream,
 	most = get_most(channel->syncsound_id, dir);
 	if (!most || !most->cfg)
 		return -ENOTCONN;
-	pr_debug("%p (%d) cfg %p\n", most, most - mlb_channels, most->cfg);
+	pr_debug("%p (%zd) cfg %p\n", most, most - mlb_channels, most->cfg);
 	channel->most = most;
 	channel->substream = substream;
 	update_pcm_hw_from_cfg(channel, most->cfg);
