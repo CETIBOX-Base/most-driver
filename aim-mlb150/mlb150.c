@@ -915,10 +915,10 @@ static int __init mod_init(void)
 
 		if (id < number_sync_channels)
 			snprintf(c->name, sizeof(c->name), "sync%d", id);
-		else if (number_isoc_channels > 1) {
-			id -= number_sync_channels;
-			snprintf(c->name, sizeof(c->name), "isoc%d", id);
-		} else
+		else if (number_isoc_channels > 1)
+			snprintf(c->name, sizeof(c->name), "isoc%d",
+				 id - number_sync_channels);
+		else
 			strlcpy(c->name, "isoc", sizeof(c->name));
 		c->devno = MKDEV(MAJOR(aim_devno), MINOR_BASE + c - aim_channels);
 		spin_lock_init(&c->unlink);
