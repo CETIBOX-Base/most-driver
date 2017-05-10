@@ -18,5 +18,11 @@
 
 u32 syncsound_get_num_devices(void);
 
+enum {
+	ISOC_FRMSIZ_188,
+	ISOC_FRMSIZ_192,
+	ISOC_FRMSIZ_196,
+};
+
 #endif /* _MLB150_EXT_H_ */
 
