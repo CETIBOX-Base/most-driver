@@ -24,5 +24,11 @@ enum {
 	ISOC_FRMSIZ_196,
 };
 
+#define CH_ISOC_BLK_NUM_MIN     (3)
+#define CH_ISOC_BLK_NUM_DEFAULT	(8)
+#define CH_ISOC_BLK_SIZE_MIN	(188)
+#define CH_ISOC_BLK_SIZE_MAX	(196)
+#define CH_ISOC_BLK_SIZE_DEFAULT CH_ISOC_BLK_SIZE_MIN
+
 #endif /* _MLB150_EXT_H_ */
 

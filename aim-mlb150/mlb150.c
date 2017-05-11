@@ -22,6 +22,7 @@
 #include <linux/poll.h>
 #include <linux/kfifo.h>
 #include <linux/uaccess.h>
+#include <linux/platform_device.h>
 #include "mostcore.h"
 #include "mlb150.h"
 #include "mlb150_ext.h"
@@ -46,6 +47,9 @@ EXPORT_SYMBOL(syncsound_get_num_devices);
 /* number of isochronous channels to provide by default */
 static uint number_isoc_channels = 1;
 module_param_named(isoc_channels, number_isoc_channels, uint, 0444);
+
+static uint isoc_blk_sz = CH_ISOC_BLK_SIZE_DEFAULT;
+static uint isoc_blk_num = CH_ISOC_BLK_NUM_DEFAULT;
 
 static dev_t aim_devno;
 static struct class aim_class = {
@@ -910,6 +914,70 @@ static struct most_aim aim = {
 	.tx_completion = aim_tx_completion,
 };
 
+static int sysfstouint(const char *buf, size_t count, uint *val)
+{
+	char tmp[32];
+
+	tmp[strlcpy(tmp, buf, min_t(size_t, sizeof(tmp), count))] = '\0';
+	return kstrtouint(tmp, 0, val);
+}
+
+static ssize_t isoc_blk_sz_show(struct device_driver *drv, char *buf)
+{
+	return sprintf(buf, "%u\n", isoc_blk_sz);
+}
+static ssize_t isoc_blk_sz_store(struct device_driver *drv,
+				 const char *buf, size_t count)
+{
+	int err;
+	uint val;
+
+	err = sysfstouint(buf, count, &val);
+	if (err)
+		;
+	else if (val == 188 || val == 192 || val == 196)
+		isoc_blk_sz = val;
+	else
+		err = -EINVAL;
+	return err ? err : count;
+}
+
+static ssize_t isoc_blk_num_show(struct device_driver *drv, char *buf)
+{
+	return sprintf(buf, "%u\n", isoc_blk_num);
+}
+static ssize_t isoc_blk_num_store(struct device_driver *drv,
+				  const char *buf, size_t count)
+{
+	int err;
+	uint val;
+
+	err = sysfstouint(buf, count, &val);
+	if (err)
+		;
+	else if (val >= CH_ISOC_BLK_NUM_MIN)
+		isoc_blk_num = val;
+	else
+		err = -EINVAL;
+	return err ? err : count;
+}
+
+static DRIVER_ATTR_RW(isoc_blk_sz);
+static DRIVER_ATTR_RW(isoc_blk_num);
+static struct attribute *aim_drv_attrs[] = {
+	&driver_attr_isoc_blk_sz.attr,
+	&driver_attr_isoc_blk_num.attr,
+	NULL
+};
+ATTRIBUTE_GROUPS(aim_drv);
+static struct platform_driver aim_platform_drv = {
+	.driver = {
+		.name = "mlb150",
+		.owner = THIS_MODULE,
+		.groups = aim_drv_groups,
+	},
+};
+
 static int __init mod_init(void)
 {
 	int err;
@@ -969,6 +1037,9 @@ static int __init mod_init(void)
 	err = most_register_aim(&aim);
 	if (err)
 		goto free_devices;
+	err = platform_driver_register(&aim_platform_drv);
+	if (err < 0)
+		goto free_devices;
 	return 0;
 free_devices:
 	while (c-- > aim_channels) {
@@ -996,6 +1067,7 @@ static void __exit mod_exit(void)
 
 	pr_debug("\n");
 
+	platform_driver_unregister(&aim_platform_drv);
 	most_deregister_aim(&aim);
 	for (c = aim_channels + used_minor_devices; --c >= aim_channels;) {
 		kfifo_free(&c->fifo);
