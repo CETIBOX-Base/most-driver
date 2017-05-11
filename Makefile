@@ -24,6 +24,10 @@ obj-m += aim_syncsound.o
 aim_syncsound-y := aim-syncsound/syncsound.o
 CFLAGS_syncsound.o := -I$(src)/mostcore -I$(src)/aim-mlb150
 
+obj-m += aim_isostream.o
+aim_isostream-y := aim-isostream/isostream.o
+CFLAGS_isostream.o := -I$(src)/mostcore -I$(src)/aim-mlb150
+
 obj-m += aim_network.o
 aim_network-y := aim-network/networking.o
 CFLAGS_networking.o := -I$(src)/mostcore

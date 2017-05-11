@@ -1,0 +1,10 @@
+config AIM_ISOSTREAM
+	tristate "V4L2 AIM (isostream interface)"
+
+	---help---
+	  Say Y here if you want to communicate via V4L2 devices using
+	  the interface of isostream driver, which supports both video
+	  input and output.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called aim_isostream.
