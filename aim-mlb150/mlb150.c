@@ -409,19 +409,15 @@ static int mlb150_chan_startup(struct aim_channel *c, uint accmode)
 	int ret;
 	struct mostcore_channel *most;
 
+	if (!(accmode == O_RDONLY || accmode == O_WRONLY))
+		return -EINVAL;
 	mutex_lock(&c->io_mutex);
 	if (c->most) {
 		ret = -EBUSY;
 		goto unlock;
 	}
-	if (accmode == O_RDONLY)
-		most = mlb_channels + (c->mlb150_caddr & 0xffff);
-	else if (accmode == O_WRONLY)
-		most = mlb_channels + ((c->mlb150_caddr >> 16) & 0xffff);
-	else {
-		ret = -EINVAL;
-		goto unlock;
-	}
+	most = mlb_channels;
+	most += (c->mlb150_caddr >> 16 * (accmode == O_WRONLY)) & 0xffff;
 	if (!most->cfg || most->cfg->direction != (accmode == O_RDONLY ?
 						   MOST_CH_RX : MOST_CH_TX)) {
 		ret = -ENODEV;
@@ -432,13 +428,12 @@ static int mlb150_chan_startup(struct aim_channel *c, uint accmode)
 		goto unlock;
 	}
 
-	// TODO
-	pr_debug("unimplemenented"); ret = -ENOTSUPP; goto unlock;
-	//ret = mlb_chan_allocate_dmabufs(drvdata, pdevinfo, direction, 0);
-	//return ret ? ret : mlb_chan_startup(pdevinfo, direction);
-
-	most->started = 1;
-	ret = 0;
+	most->aim = c;
+	c->most = most;
+	most->cfg->packets_per_xact = most->params[0].fpt;
+	most->cfg->subbuffer_size = 188;
+	most->cfg->buffer_size = 2*188;
+	ret = start_most(c);
 unlock:
 	mutex_unlock(&c->io_mutex);
 	return ret;
@@ -482,8 +477,8 @@ static int mlb150_sync_chan_startup(struct aim_channel *c, uint accmode,
 		ret = -EBUSY;
 		goto unlock;
 	}
-	most = mlb_channels + (accmode == O_RDONLY ? c->mlb150_caddr & 0xffff :
-			       (c->mlb150_caddr >> 16) & 0xffff);
+	most = mlb_channels;
+	most += (c->mlb150_caddr >> (16 * accmode == O_WRONLY)) & 0xffff;
 	if (!most->cfg || most->cfg->direction != (accmode == O_RDONLY ?
 						   MOST_CH_RX : MOST_CH_TX)) {
 		ret = -ENODEV;
