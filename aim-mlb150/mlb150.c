@@ -109,7 +109,8 @@ struct mostcore_channel {
 	struct most_interface *iface;
 	struct most_channel_config *cfg;
 	unsigned int channel_id;
-	int started;
+	uint started:1;
+	uint hands_off:1;
 	struct aim_channel *aim;
 	struct mostcore_channel *next; /* used by most->aim channel mapping */
 	struct mostcore_param params[
@@ -218,6 +219,19 @@ static inline bool ch_has_mbo(const struct mostcore_channel *most)
 	return channel_has_mbo(most->iface, most->channel_id, &aim) > 0;
 }
 
+void mlb150_lock_channel(int mlb150_id, bool on)
+{
+	struct mostcore_channel *most = mlb_channels + mlb150_id;
+	struct aim_channel *c = most->aim; // FIXME: lock?
+
+	if (c)
+		mutex_lock(&c->io_mutex);
+	most->hands_off = on;
+	if (c)
+		mutex_unlock(&c->io_mutex);
+}
+EXPORT_SYMBOL(mlb150_lock_channel);
+
 static ssize_t aim_read(struct file *filp, char __user *buf,
 			size_t count, loff_t *f_pos)
 {
@@ -245,6 +259,8 @@ static ssize_t aim_read(struct file *filp, char __user *buf,
 		ret = -ESHUTDOWN;
 		goto unlock;
 	}
+	if (c->most->hands_off) {
+		ret = -EUSERS;
 		goto unlock;
 	}
 	write_lock_irqsave(&c->stat_lock, flags);
@@ -290,6 +306,10 @@ static ssize_t aim_write(struct file *filp, const char __user *buf,
 		ret = -ESHUTDOWN;
 		goto unlock;
 	}
+	if (c->most->hands_off) {
+		ret = -EUSERS;
+		goto unlock;
+	}
 	to_copy = min(count, c->most->cfg->buffer_size - c->mbo_offs);
 	left = copy_from_user(mbo->virt_address + c->mbo_offs, buf, to_copy);
 	if (left == to_copy) {
@@ -326,6 +346,8 @@ static unsigned int aim_poll(struct file *filp, poll_table *wait)
 	mutex_lock(&c->io_mutex);
 	if (!c->most || !c->most->started)
 		mask |= POLLIN|POLLOUT|POLLERR|POLLNVAL|POLLHUP;
+	else if (c->most->hands_off)
+		mask = 0;
 	else if (c->most->cfg->direction == MOST_CH_RX) {
 		if (!kfifo_is_empty(&c->fifo))
 			mask |= POLLIN | POLLRDNORM;
@@ -654,6 +676,8 @@ static int aim_rx_completion(struct mbo *mbo)
 	most = get_channel(mbo->ifp, mbo->hdm_channel_id);
 	if (!most)
 		return -ENXIO;
+	if (most->hands_off)
+		return -EUSERS;
 	kfifo_in(&most->aim->fifo, &mbo, 1);
 	wake_up_interruptible(&most->aim->wq);
 	return 0;
@@ -782,6 +806,7 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 		goto fail;
 	err = 0;
 	most->cfg = cfg;
+	most->hands_off = 0;
 	if (cfg->data_type == MOST_CH_SYNC)
 		memcpy(most->params, def_sync_param, sizeof(def_sync_param));
 	else if (cfg->data_type == MOST_CH_ISOC)

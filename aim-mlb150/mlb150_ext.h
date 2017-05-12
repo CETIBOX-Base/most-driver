@@ -17,6 +17,7 @@
 #define SYNC_DMA_MAX_SIZE       (0x1fff + 1) /* system memory buffer size in ADT */
 
 u32 syncsound_get_num_devices(void);
+void mlb150_lock_channel(int mlb150_id, bool lock);
 
 enum {
 	ISOC_FRMSIZ_188,
