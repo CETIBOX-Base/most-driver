@@ -455,12 +455,11 @@ static int mlb150_chan_startup(struct aim_channel *c, uint accmode)
 		ret = -EINVAL;
 		goto unlock;
 	}
-
 	most->aim = c;
 	c->most = most;
 	most->cfg->packets_per_xact = most->params[0].fpt;
-	most->cfg->subbuffer_size = 188;
-	most->cfg->buffer_size = 2*188;
+	most->cfg->subbuffer_size = isoc_blk_sz;
+	most->cfg->buffer_size = isoc_blk_num * most->cfg->subbuffer_size;
 	ret = start_most(c);
 unlock:
 	mutex_unlock(&c->io_mutex);
