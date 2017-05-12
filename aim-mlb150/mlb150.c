@@ -221,7 +221,7 @@ static inline bool ch_has_mbo(const struct mostcore_channel *most)
 static ssize_t aim_read(struct file *filp, char __user *buf,
 			size_t count, loff_t *f_pos)
 {
-	ssize_t copied;
+	ssize_t ret;
 	size_t to_copy, not_copied;
 	unsigned long flags;
 	struct mbo *mbo;
@@ -229,7 +229,7 @@ static ssize_t aim_read(struct file *filp, char __user *buf,
 
 	mutex_lock(&c->io_mutex);
 	if (!c->most || !c->most->started) {
-		copied = -ESHUTDOWN;
+		ret = -ESHUTDOWN;
 		goto unlock;
 	}
 	while (c->most && !kfifo_peek(&c->fifo, &mbo)) {
@@ -242,7 +242,9 @@ static ssize_t aim_read(struct file *filp, char __user *buf,
 		mutex_lock(&c->io_mutex);
 	}
 	if (unlikely(!c->most)) {
-		copied = -ESHUTDOWN;
+		ret = -ESHUTDOWN;
+		goto unlock;
+	}
 		goto unlock;
 	}
 	write_lock_irqsave(&c->stat_lock, flags);
@@ -251,8 +253,8 @@ static ssize_t aim_read(struct file *filp, char __user *buf,
 	write_unlock_irqrestore(&c->stat_lock, flags);
 	to_copy = min_t(size_t, count, mbo->processed_length - c->mbo_offs);
 	not_copied = copy_to_user(buf, mbo->virt_address + c->mbo_offs, to_copy);
-	copied = to_copy - not_copied;
-	c->mbo_offs += copied;
+	ret = to_copy - not_copied;
+	c->mbo_offs += ret;
 	if (c->mbo_offs >= mbo->processed_length) {
 		kfifo_skip(&c->fifo);
 		most_put_mbo(mbo);
@@ -260,7 +262,7 @@ static ssize_t aim_read(struct file *filp, char __user *buf,
 	}
 unlock:
 	mutex_unlock(&c->io_mutex);
-	return copied;
+	return ret;
 }
 
 static ssize_t aim_write(struct file *filp, const char __user *buf,
