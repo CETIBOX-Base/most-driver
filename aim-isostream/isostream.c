@@ -23,6 +23,7 @@
 
 static int __init mod_init(void)
 {
+	mlb150_lock_channel(1, true);
 	return -ENOTSUPP;
 }
 
