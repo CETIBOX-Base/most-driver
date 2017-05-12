@@ -961,7 +961,7 @@ static ssize_t isoc_blk_sz_store(struct device_driver *drv,
 	err = sysfstouint(buf, count, &val);
 	if (err)
 		;
-	else if (val == 188 || val == 192 || val == 196)
+	else if (CH_ISOC_BLK_SIZE_MIN <= val && val <= CH_ISOC_BLK_SIZE_MAX)
 		isoc_blk_sz = val;
 	else
 		err = -EINVAL;
