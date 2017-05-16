@@ -734,7 +734,7 @@ static int __init mod_init(void)
 	struct channel *channels;
 	struct syncsound_attr *attr;
 
-	pr_info("init()\n");
+	pr_debug("\n");
 	for (i = 0; i < ARRAY_SIZE(mlb_channels); ++i) {
 		uint c, s;
 		struct mostcore_channel *most = mlb_channels + i;
@@ -748,7 +748,7 @@ static int __init mod_init(void)
 		}
 	}
 	INIT_LIST_HEAD(&dev_list);
-	ret = snd_card_new(NULL, -1, NULL, THIS_MODULE,
+	ret = snd_card_new(most_parent_device(), -1, NULL, THIS_MODULE,
 			   max_pcms * sizeof(*channels) +
 			   max_pcms * sizeof(*attr) *
 			   ARRAY_SIZE(syncsound_attrs),

@@ -386,4 +386,6 @@ int most_stop_channel(struct most_interface *iface, int channel_idx,
 void most_deliver_netinfo(struct most_interface *iface,
 			  unsigned char link_stat, unsigned char *mac_addr);
 
+struct device *most_parent_device(void);
+
 #endif /* MOST_CORE_H_ */

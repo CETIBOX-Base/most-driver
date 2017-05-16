@@ -39,6 +39,12 @@ static int dummy_num_buffers;
 static struct list_head config_probes = LIST_HEAD_INIT(config_probes);
 static struct mutex config_probes_mt; /* config_probes */
 
+struct device *most_parent_device(void)
+{
+	return core_dev;
+}
+EXPORT_SYMBOL_GPL(most_parent_device);
+
 struct most_c_aim_obj {
 	struct most_aim *ptr;
 	int refs;
