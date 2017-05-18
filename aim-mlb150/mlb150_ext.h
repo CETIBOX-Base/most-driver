@@ -1,6 +1,8 @@
 #ifndef _MLB150_EXT_H_
 #define _MLB150_EXT_H_
 
+#include <linux/list.h>
+
 #define MLB_MAX_SYNC_DEVICES	7
 #define MLB_MAX_ISOC_DEVICES	4
 
@@ -17,6 +19,7 @@
 #define SYNC_DMA_MAX_SIZE       (0x1fff + 1) /* system memory buffer size in ADT */
 
 u32 syncsound_get_num_devices(void);
+unsigned int mlb150_ext_get_isoc_channel_count(void);
 void mlb150_lock_channel(int mlb150_id, bool lock);
 
 enum {
@@ -30,6 +33,72 @@ enum {
 #define CH_ISOC_BLK_SIZE_MIN	(188)
 #define CH_ISOC_BLK_SIZE_MAX	(196)
 #define CH_ISOC_BLK_SIZE_DEFAULT CH_ISOC_BLK_SIZE_MIN
+
+enum mlb150_channel_type {
+	MLB150_CTYPE_CTRL,
+	MLB150_CTYPE_ASYNC,
+	MLB150_CTYPE_ISOC,
+	MLB150_CTYPE_SYNC,
+};
+
+enum channelmode {
+	MLB_RDONLY,
+	MLB_WRONLY,
+	MLB_RDWR,
+	MLB_CHANNEL_UNDEFINED = -1
+};
+
+struct mlb150_dmabuf {
+	struct list_head head;
+	void *virt;
+	dma_addr_t phys;
+	unsigned long flags;
+};
+
+struct mlb150_io_buffers {
+	struct list_head in;
+	struct list_head out;
+};
+
+static inline struct mlb150_dmabuf *mlb150_ext_get_dmabuf(struct mlb150_io_buffers *bufs)
+{
+	struct mlb150_dmabuf *dmab;
+
+	if (list_empty(&bufs->in))
+		return NULL;
+
+	dmab = list_first_entry(&bufs->in, struct mlb150_dmabuf, head);
+	list_del(&dmab->head);
+	return dmab;
+}
+
+static inline void mlb150_ext_put_dmabuf(struct mlb150_io_buffers *bufs, struct mlb150_dmabuf *dmab)
+{
+	list_add_tail(&dmab->head, &bufs->out);
+}
+
+struct mlb150_ext {
+	enum mlb150_channel_type ctype;
+	int minor;
+	unsigned int size, count;
+	enum channelmode mode;
+	u32 addrs;
+
+	int (*setup)(struct mlb150_ext *, struct device *);
+
+	void (*rx)(struct mlb150_ext *, struct mlb150_io_buffers *);
+	void (*tx)(struct mlb150_ext *);
+
+	struct module *owner;
+
+	void (*cleanup)(struct mlb150_ext *);
+};
+
+int mlb150_ext_get_tx_buffers(struct mlb150_ext *, struct mlb150_io_buffers *);
+int mlb150_ext_put_tx_buffers(struct mlb150_ext *, struct mlb150_io_buffers *);
+void mlb150_ext_free_dmabuf(struct mlb150_ext *, struct mlb150_dmabuf *);
+int mlb150_ext_register(struct mlb150_ext *);
+void mlb150_ext_unregister(struct mlb150_ext *);
 
 #endif /* _MLB150_EXT_H_ */
 
