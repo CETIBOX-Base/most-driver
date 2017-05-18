@@ -154,10 +154,11 @@ fail:
 	return ret;
 }
 
-int most_video_queue_setup(struct vb2_queue *vq, const struct v4l2_format *fmt,
+int most_video_queue_setup(struct vb2_queue *vq, const void *parg,
 			   unsigned int *nbuffers, unsigned int *nplanes,
 			   unsigned int sizes[], void *alloc_ctxs[])
 {
+	const struct v4l2_format *fmt = parg;
 	struct most_video_device *dev = vb2_get_drv_priv(vq);
 	unsigned size;
 
@@ -273,10 +274,11 @@ void most_video_wait_prepare(struct vb2_queue *vq)
 
 int most_video_buf_prepare(struct vb2_buffer *vb)
 {
-	struct frame *buf = container_of(vb, struct frame, vb);
+	struct vb2_v4l2_buffer *vb4 = to_vb2_v4l2_buffer(vb);
+	struct frame *buf = container_of(vb4, struct frame, vb4);
 
-	pr_debug("[%p/%d]\n", buf, buf->vb.v4l2_buf.index);
-	buf->plane0 = vb2_plane_vaddr(&buf->vb, 0);
+	pr_debug("[%p/%d]\n", buf, buf->vb4.vb2_buf.index);
+	buf->plane0 = vb2_plane_vaddr(vb, 0);
 	return buf->plane0 ? 0 : -ENOMEM;
 }
 
@@ -292,8 +294,8 @@ static void cleanup_frameq(struct most_video_device *mvdev)
 		struct frame *buf;
 		buf = list_entry(vidq->todo.next, struct frame, list);
 		list_del(&buf->list);
-		vb2_buffer_done(&buf->vb, VB2_BUF_STATE_ERROR);
-		pr_debug("[%p/%d] released\n", buf, buf->vb.v4l2_buf.index);
+		vb2_buffer_done(&buf->vb4.vb2_buf, VB2_BUF_STATE_ERROR);
+		pr_debug("[%p/%d] released\n", buf, buf->vb4.vb2_buf.index);
 	}
 	/* return all withheld dmabufs */
 	while (!list_empty(&vidq->input)) {
@@ -308,14 +310,13 @@ static void cleanup_frameq(struct most_video_device *mvdev)
 	spin_unlock_irqrestore(&mvdev->slock, flags);
 }
 
-int most_video_stop_streaming(struct vb2_queue *vq)
+void most_video_stop_streaming(struct vb2_queue *vq)
 {
 	struct most_video_device *dev = vb2_get_drv_priv(vq);
 
 	pr_debug("%s: stopping streaming\n", video_device_node_name(&dev->vdev));
 	atomic_set(&dev->running, 0);
 	cleanup_frameq(dev);
-	return 0;
 }
 
 static int probe(struct platform_device *pdev)
@@ -414,7 +415,6 @@ int most_video_init_device(struct most_video_device *dev,
 	*vfd = *device_template;
 	vfd->v4l2_dev = &dev->v4l2_dev;
 	vfd->queue = q;
-	set_bit(V4L2_FL_USE_FH_PRIO, &vfd->flags);
 
 	/*
 	 * Provide a mutex to v4l2 core. It will be used to protect
@@ -462,13 +462,13 @@ static int isostream_setup(struct mlb150_ext *ext, struct device *mlbdev)
 	out_dev->mlb_frm_size = ext->size;
 
 	cap_dev->ext = ext;
-	cap_dev->vdev.debug = debug;
+	// cap_dev->vdev.debug = debug; FIXME
 	pr_info(DRIVER_NAME ": capture device: %s, MLB device %s, minor %d\n",
 		video_device_node_name(&cap_dev->vdev),
 		mlbdev ? dev_name(mlbdev) : "(none)", ext->minor);
 
 	out_dev->ext = ext;
-	out_dev->vdev.debug = debug;
+	//out_dev->vdev.debug = debug; FIXME
 	pr_info(DRIVER_NAME ": output device: %s\n",
 		video_device_node_name(&out_dev->vdev));
 

@@ -42,7 +42,7 @@ int vidioc_enum_framesizes(struct file *, void *, struct v4l2_frmsizeenum *);
 /* buffer for one video frame */
 struct frame {
 	/* common v4l buffer stuff -- must be first */
-	struct vb2_buffer	     vb;
+	struct vb2_v4l2_buffer	     vb4;
 	struct list_head	     list; /* used to queue the frames */
 	void *plane0;
 };
@@ -88,7 +88,7 @@ int most_video_init_device(struct most_video_device *,
 			   const struct video_device *device_template);
 void most_video_destroy_device(struct most_video_device *);
 int most_video_setup_ctrls(struct most_video_device *);
-int most_video_queue_setup(struct vb2_queue *, const struct v4l2_format *,
+int most_video_queue_setup(struct vb2_queue *, const void *,
 			   unsigned int *nbuffers, unsigned int *nplanes,
 			   unsigned int sizes[], void *alloc_ctxs[]);
 int most_video_g_fmt(struct file *, void *priv, struct v4l2_format *);
@@ -99,7 +99,7 @@ int most_video_s_inout(struct file *, void *priv, unsigned int i);
 int most_video_buf_prepare(struct vb2_buffer *);
 void most_video_wait_prepare(struct vb2_queue *);
 void most_video_wait_finish(struct vb2_queue *);
-int most_video_stop_streaming(struct vb2_queue *);
+void most_video_stop_streaming(struct vb2_queue *);
 
 struct isostream_mlb150_ext {
 	struct most_video_device *capture;

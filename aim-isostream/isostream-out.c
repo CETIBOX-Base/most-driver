@@ -6,6 +6,7 @@
 #include <linux/mutex.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
+#include <media/videobuf2-v4l2.h>
 #include "isostream.h"
 
 /* Copy frames from the list of video buffers (vidq.todo) to the dmabufs */
@@ -34,15 +35,15 @@ static void copy_frames(struct most_video_device *dev)
 		while (!list_empty(&vidq->todo)) {
 			struct frame *buf = list_entry(vidq->todo.next,
 						       struct frame, list);
-			ulong size = min_t(ulong, vb2_plane_size(&buf->vb, 0),
+			ulong size = min_t(ulong, vb2_plane_size(&buf->vb4.vb2_buf, 0),
 					   frmsize);
 
 			__list_del_entry(&buf->list);
-			buf->vb.v4l2_buf.sequence = dev->frame_sequence++;
+			buf->vb4.sequence = dev->frame_sequence++;
 			memcpy(dmap, buf->plane0, size);
 			dmap += size;
-			v4l2_get_timestamp(&buf->vb.v4l2_buf.timestamp);
-			vb2_buffer_done(&buf->vb, VB2_BUF_STATE_DONE);
+			v4l2_get_timestamp(&buf->vb4.timestamp);
+			vb2_buffer_done(&buf->vb4.vb2_buf, VB2_BUF_STATE_DONE);
 			if (dmap == dma_end)
 				goto next_dmab;
 		}
@@ -79,11 +80,12 @@ void isostream_tx_isr(struct mlb150_ext *ext)
 static void buf_queue(struct vb2_buffer *vb)
 {
 	struct most_video_device *dev = vb2_get_drv_priv(vb->vb2_queue);
-	struct frame *buf = container_of(vb, struct frame, vb);
+	struct vb2_v4l2_buffer *vb4 = to_vb2_v4l2_buffer(vb);
+	struct frame *buf = container_of(vb4, struct frame, vb4);
 	struct frame_queue *vidq = &dev->vidq;
 	unsigned long flags;
 
-	pr_debug("[%p/%d] todo\n", buf, buf->vb.v4l2_buf.index);
+	pr_debug("[%p/%d] todo\n", buf, buf->vb4.vb2_buf.index);
 	spin_lock_irqsave(&dev->slock, flags);
 	list_add_tail(&buf->list, &vidq->todo);
 	copy_frames(dev);
