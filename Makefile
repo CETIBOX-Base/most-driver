@@ -29,8 +29,8 @@ aim_isostream-y := aim-isostream/isostream.o \
     aim-isostream/isostream-cap.o \
     aim-isostream/isostream-out.o
 CFLAGS_isostream.o := -I$(src)/mostcore -I$(src)/aim-mlb150
-CFLAGS_isostream_cap.o := -I$(src)/mostcore -I$(src)/aim-mlb150
-CFLAGS_isostream_out.o := -I$(src)/mostcore -I$(src)/aim-mlb150
+CFLAGS_isostream-cap.o := -I$(src)/mostcore -I$(src)/aim-mlb150
+CFLAGS_isostream-out.o := -I$(src)/mostcore -I$(src)/aim-mlb150
 
 obj-m += aim_network.o
 aim_network-y := aim-network/networking.o
