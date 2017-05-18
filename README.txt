@@ -22,12 +22,12 @@ The modules must be loaded in the order below:
 
     mostcore.ko
     cfg-honda.ko
-    hdm_usb.ko
     aim_network.ko
     aim_cdev.ko
     aim_mlb150.ko
     aim_syncsound.ko
     aim_v4l2.ko
+    hdm_usb.ko
 
 Loading of the modules is not enough to get a working MOST interface, this
 configuration must be done separately.
