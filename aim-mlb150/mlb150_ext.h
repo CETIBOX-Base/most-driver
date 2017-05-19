@@ -20,7 +20,6 @@
 
 u32 syncsound_get_num_devices(void);
 unsigned int mlb150_ext_get_isoc_channel_count(void);
-void mlb150_lock_channel(int mlb150_id, bool lock);
 
 enum {
 	ISOC_FRMSIZ_188,
@@ -77,21 +76,18 @@ static inline void mlb150_ext_put_dmabuf(struct mlb150_io_buffers *bufs, struct 
 	list_add_tail(&dmab->head, &bufs->out);
 }
 
+struct aim_channel;
+
 struct mlb150_ext {
+	struct list_head head;
 	enum mlb150_channel_type ctype;
 	int minor;
 	unsigned int size, count;
-	enum channelmode mode;
-	u32 addrs;
-
 	int (*setup)(struct mlb150_ext *, struct device *);
-
 	void (*rx)(struct mlb150_ext *, struct mlb150_io_buffers *);
 	void (*tx)(struct mlb150_ext *);
-
-	struct module *owner;
-
 	void (*cleanup)(struct mlb150_ext *);
+	struct aim_channel *aim;
 };
 
 int mlb150_ext_get_tx_buffers(struct mlb150_ext *, struct mlb150_io_buffers *);
@@ -99,6 +95,7 @@ int mlb150_ext_put_tx_buffers(struct mlb150_ext *, struct mlb150_io_buffers *);
 void mlb150_ext_free_dmabuf(struct mlb150_ext *, struct mlb150_dmabuf *);
 int mlb150_ext_register(struct mlb150_ext *);
 void mlb150_ext_unregister(struct mlb150_ext *);
+int mlb150_lock_channel(struct mlb150_ext *, bool lock);
 
 #endif /* _MLB150_EXT_H_ */
 

@@ -502,7 +502,6 @@ static struct isostream_mlb150_ext isoext[MLB_MAX_ISOC_DEVICES] = {
 			.setup = isostream_setup,
 			.rx    = isostream_rx_isr,
 			.tx    = isostream_tx_isr,
-			.owner = THIS_MODULE,
 			.cleanup = isostream_cleanup,
 		}
 	}

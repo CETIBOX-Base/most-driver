@@ -73,6 +73,7 @@ struct aim_channel {
 	size_t mbo_offs;
 	DECLARE_KFIFO_PTR(fifo, typeof(struct mbo *));
 	int users;
+	struct mlb150_ext *ext; /* FIXME needs access spinlock */
 
 	rwlock_t stat_lock;
 	long long tx_bytes, rx_bytes, rx_pkts, tx_pkts;
@@ -110,7 +111,6 @@ struct mostcore_channel {
 	struct most_channel_config *cfg;
 	unsigned int channel_id;
 	uint started:1;
-	uint hands_off:1;
 	struct aim_channel *aim;
 	struct mostcore_channel *next; /* used by most->aim channel mapping */
 	struct mostcore_param params[
@@ -130,6 +130,14 @@ static struct most_aim aim; /* forward declaration */
 static inline bool ch_not_found(const struct aim_channel *c)
 {
 	return c == aim_channels + used_minor_devices;
+}
+static inline
+enum most_channel_data_type ch_data_type(const struct aim_channel *c)
+{
+	return c < 0 ? (enum most_channel_data_type)-1 :
+		c < aim_channels + number_sync_channels ? MOST_CH_SYNC :
+		c < aim_channels + number_sync_channels + number_isoc_channels ? MOST_CH_ISOC :
+		(enum most_channel_data_type)-1;
 }
 
 static DEFINE_SPINLOCK(aim_most_lock);
@@ -219,19 +227,6 @@ static inline bool ch_has_mbo(const struct mostcore_channel *most)
 	return channel_has_mbo(most->iface, most->channel_id, &aim) > 0;
 }
 
-void mlb150_lock_channel(int mlb150_id, bool on)
-{
-	struct mostcore_channel *most = mlb_channels + mlb150_id;
-	struct aim_channel *c = most->aim; // FIXME: lock?
-
-	if (c)
-		mutex_lock(&c->io_mutex);
-	most->hands_off = on;
-	if (c)
-		mutex_unlock(&c->io_mutex);
-}
-EXPORT_SYMBOL(mlb150_lock_channel);
-
 static ssize_t aim_read(struct file *filp, char __user *buf,
 			size_t count, loff_t *f_pos)
 {
@@ -259,7 +254,7 @@ static ssize_t aim_read(struct file *filp, char __user *buf,
 		ret = -ESHUTDOWN;
 		goto unlock;
 	}
-	if (c->most->hands_off) {
+	if (c->ext) {
 		ret = -EUSERS;
 		goto unlock;
 	}
@@ -306,7 +301,7 @@ static ssize_t aim_write(struct file *filp, const char __user *buf,
 		ret = -ESHUTDOWN;
 		goto unlock;
 	}
-	if (c->most->hands_off) {
+	if (c->ext) {
 		ret = -EUSERS;
 		goto unlock;
 	}
@@ -346,7 +341,7 @@ static unsigned int aim_poll(struct file *filp, poll_table *wait)
 	mutex_lock(&c->io_mutex);
 	if (!c->most || !c->most->started)
 		mask |= POLLIN|POLLOUT|POLLERR|POLLNVAL|POLLHUP;
-	else if (c->most->hands_off)
+	else if (c->ext)
 		mask = 0;
 	else if (c->most->cfg->direction == MOST_CH_RX) {
 		if (!kfifo_is_empty(&c->fifo))
@@ -386,6 +381,9 @@ static void stop_most(struct aim_channel *c)
 	pr_debug("%s.%zd (%s) shut down\n",
 		 c->name, c->most - mlb_channels,
 		 c->most->cfg->direction == MOST_CH_RX ? "rx" : "tx");
+	// FIXME needs a lock to protect against extension being unregd
+	if (c->ext && c->ext->cleanup)
+		c->ext->cleanup(c->ext);
 	if (c->most->started) {
 		while (kfifo_out((struct kfifo *)&c->fifo, &mbo, 1))
 			most_put_mbo(mbo);
@@ -597,9 +595,11 @@ static long aim_mlb150_ioctl(struct file *filp, unsigned int cmd, unsigned long 
 		break;
 
 	case MLB_GET_ISOC_BUFSIZE:
-		/* return the size of this channel (recalculated in do_open()) */
-		// TODO const unsigned int size = pdevinfo->isoc_blk_size * pdevinfo->isoc_blk_num;
-		val = 0;
+		/*
+		 * Return the size of this channel
+		 * FIXME: the original recalculates it in open and stores
+		 */
+		val = isoc_blk_sz * isoc_blk_num;
 		ret = copy_to_user(argp, &val, sizeof(val)) ? -EFAULT : 0;
 		break;
 
@@ -646,6 +646,10 @@ static int aim_open(struct inode *inode, struct file *filp)
 	}
 	c->users++;
 	ret = 0;
+	if (ch_data_type(c) == MOST_CH_ISOC && c->ext) {
+		c->ext->size = isoc_blk_sz;
+		c->ext->count = isoc_blk_num;
+	}
 	pr_debug("%s (%s)\n", c->name, dir == MOST_CH_TX ? "tx" : "rx");
 unlock:
 	mutex_unlock(&c->io_mutex);
@@ -675,8 +679,16 @@ static int aim_rx_completion(struct mbo *mbo)
 	most = get_channel(mbo->ifp, mbo->hdm_channel_id);
 	if (!most)
 		return -ENXIO;
-	if (most->hands_off)
+	// FIXME needs a lock to protect against extension being unregd
+	if (most->aim->ext) {
+		struct mlb150_ext *ext = most->aim->ext;
+
+		if (ext->rx)
+			ext->rx(ext, mbo);
+		else
+			most_put_mbo(mbo);
 		return -EUSERS;
+	}
 	kfifo_in(&most->aim->fifo, &mbo, 1);
 	wake_up_interruptible(&most->aim->wq);
 	return 0;
@@ -690,6 +702,14 @@ static int aim_tx_completion(struct most_interface *iface, int channel_id)
 	most = get_channel(iface, channel_id);
 	if (!most)
 		return -ENXIO;
+	// FIXME needs a lock to protect against extension being unregd
+	if (most->aim->ext) {
+		struct mlb150_ext *ext = most->aim->ext;
+
+		if (ext->tx)
+			ext->tx(ext);
+		return -EUSERS;
+	}
 	wake_up_interruptible(&most->aim->wq);
 	return 0;
 }
@@ -703,6 +723,11 @@ static int aim_disconnect_channel(struct most_interface *iface, int channel_id)
 	if (!most)
 		return -ENXIO;
 	if (most->aim) {
+		struct mlb150_ext *ext = most->aim->ext;
+
+		// FIXME needs a lock to protect against extension being unregd
+		if (ext && ext->cleanup)
+			ext->cleanup(ext);
 		mutex_lock(&most->aim->io_mutex);
 		most->aim->most = NULL;
 		mutex_unlock(&most->aim->io_mutex);
@@ -805,7 +830,6 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 		goto fail;
 	err = 0;
 	most->cfg = cfg;
-	most->hands_off = 0;
 	if (cfg->data_type == MOST_CH_SYNC)
 		memcpy(most->params, def_sync_param, sizeof(def_sync_param));
 	else if (cfg->data_type == MOST_CH_ISOC)
@@ -1111,6 +1135,93 @@ static void __exit mod_exit(void)
 
 module_init(mod_init);
 module_exit(mod_exit);
+
+/**
+ * Extensions interface emulation
+ */
+
+unsigned int mlb150_ext_get_isoc_channel_count(void)
+{
+	return number_isoc_channels;
+}
+EXPORT_SYMBOL(mlb150_ext_get_isoc_channel_count);
+
+int mlb150_ext_get_tx_buffers(struct mlb150_ext *ext, struct mlb150_io_buffers *bufs)
+{
+	return -ENOTSUPP;
+}
+EXPORT_SYMBOL(mlb150_ext_get_tx_buffers);
+
+int mlb150_ext_put_tx_buffers(struct mlb150_ext *ext, struct mlb150_io_buffers *bufs)
+{
+	return -ENOTSUPP;
+}
+EXPORT_SYMBOL(mlb150_ext_put_tx_buffers);
+
+void mlb150_ext_free_dmabuf(struct mlb150_ext *ext, struct mlb150_dmabuf *dmab)
+{
+}
+EXPORT_SYMBOL(mlb150_ext_free_dmabuf);
+
+int mlb150_ext_register(struct mlb150_ext *ext)
+{
+	int ret = 0;
+	struct aim_channel *c;
+
+	if (!(ext->ctype == MLB150_CTYPE_SYNC ||
+	      ext->ctype == MLB150_CTYPE_ISOC))
+		return -EINVAL;
+	foreach_aim_channel(c) {
+		const enum mlb150_channel_type ctype =
+			ch_data_type(c) == MOST_CH_SYNC ? MLB150_CTYPE_SYNC :
+			ch_data_type(c) == MOST_CH_ISOC ? MLB150_CTYPE_ISOC :
+			MLB150_CTYPE_CTRL;
+		int minor = c - aim_channels;
+
+		if (ch_data_type(c) == MOST_CH_ISOC)
+			minor -= number_sync_channels;
+		if (ext->ctype == ctype && ext->minor == minor) {
+			ext->size = 0;
+			ext->count = 0;
+			if (ext->setup)
+				ret = ext->setup(ext, c->dev);
+			if (ret)
+				break;
+			ext->aim = c;
+			break;
+		}
+	}
+	if (!ret)
+		pr_debug("registered '%s' extension on minor %d (%p)\n",
+			 MLB150_CTYPE_CTRL == ext->ctype ? "ctrl" :
+			 MLB150_CTYPE_ASYNC == ext->ctype ? "async" :
+			 MLB150_CTYPE_ISOC == ext->ctype ? "isoc" :
+			 MLB150_CTYPE_SYNC == ext->ctype ? "sync" : "unknown",
+			 ext->minor, ext);
+	return ret;
+}
+EXPORT_SYMBOL(mlb150_ext_register);
+
+void mlb150_ext_unregister(struct mlb150_ext *ext)
+{
+	if (ext->aim) {
+		if (ext->aim->ext == ext)
+			ext->aim->ext = NULL;
+		ext->aim = NULL;
+	}
+}
+EXPORT_SYMBOL(mlb150_ext_unregister);
+
+int mlb150_lock_channel(struct mlb150_ext *ext, bool on)
+{
+	if (!ext->aim)
+		return -EINVAL;
+	if (ext->aim->ext && on)
+		return -EBUSY;
+	ext->aim->ext = on ? ext : NULL;
+	return 0;
+}
+EXPORT_SYMBOL(mlb150_lock_channel);
 
 MODULE_AUTHOR("Cetitec GmbH <support@cetitec.com>");
 MODULE_LICENSE("GPL");
