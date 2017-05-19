@@ -18,8 +18,8 @@
 #define MAX_HEIGHT 4320
 
 #define DRIVER_NAME "most-video"
-#define MOST_VIDEO_VERSION "1.0.0"
-#define MOST_VIDEO_KVERSION KERNEL_VERSION(1, 0, 0)
+#define MOST_VIDEO_VERSION "2.0.0"
+#define MOST_VIDEO_KVERSION KERNEL_VERSION(2, 0, 0)
 
 struct video_fmt_info {
 	u32   fourcc;          /* v4l2 format id */
