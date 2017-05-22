@@ -11,7 +11,7 @@
 #include "isostream.h"
 
 /* Copy frames from the input dmabuf queue to the video buffers in vidq.todo */
-static void copy_frames(struct most_video_device *dev)
+static void copy_frames(struct most_video_device *dev, struct list_head *free)
 	__must_hold(&dev->slock)
 {
 	const uint frmcount = dev->mlb_frm_cnt,
@@ -45,20 +45,23 @@ static void copy_frames(struct most_video_device *dev)
 		}
 	next_dmab:
 		vidq->offset = 0;
-		list_del(&mbo->list);
-		most_put_mbo(mbo);
+		list_move(&mbo->list, free);
 	}
 }
 
 static void mlb_recv_data(struct most_video_device *dev, struct mbo *mbo)
 {
+	struct mbo *next;
+	LIST_HEAD(free);
 	unsigned long flags;
 
 	spin_lock_irqsave(&dev->slock, flags);
 	list_add_tail(&mbo->list, &dev->vidq.input);
 	if (!list_empty(&dev->vidq.todo))
-		copy_frames(dev);
+		copy_frames(dev, &free);
 	spin_unlock_irqrestore(&dev->slock, flags);
+	list_for_each_entry_safe(mbo, next, &free, list)
+		most_put_mbo(mbo);
 }
 
 /* ------------------------------------------------------------------
@@ -85,14 +88,18 @@ static void buf_queue(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vb4 = to_vb2_v4l2_buffer(vb);
 	struct frame *buf = container_of(vb4, struct frame, vb4);
 	struct frame_queue *vidq = &dev->vidq;
+	struct mbo *mbo, *next;
+	LIST_HEAD(free);
 	unsigned long flags;
 
 	pr_debug("[%p/%d] todo\n", buf, buf->vb4.vb2_buf.index);
 	spin_lock_irqsave(&dev->slock, flags);
 	list_add_tail(&buf->list, &vidq->todo);
 	if (!list_empty(&vidq->input))
-		copy_frames(dev);
+		copy_frames(dev, &free);
 	spin_unlock_irqrestore(&dev->slock, flags);
+	list_for_each_entry_safe(mbo, next, &free, list)
+		most_put_mbo(mbo);
 }
 
 static int start_streaming(struct vb2_queue *vq, unsigned int count)
