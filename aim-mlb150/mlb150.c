@@ -73,6 +73,7 @@ struct aim_channel {
 	DECLARE_KFIFO_PTR(fifo, typeof(struct mbo *));
 	int users;
 	struct mlb150_ext *ext;
+	struct list_head exts;
 	spinlock_t ext_slock;
 
 	rwlock_t stat_lock;
@@ -646,9 +647,20 @@ static int aim_open(struct inode *inode, struct file *filp)
 	}
 	c->users++;
 	ret = 0;
-	if (ch_data_type(c) == MOST_CH_ISOC && c->ext) {
-		c->ext->size = isoc_blk_sz;
-		c->ext->count = isoc_blk_num;
+	if (ch_data_type(c) == MOST_CH_ISOC) {
+		ulong flags;
+		struct mlb150_ext *ext;
+
+		spin_lock_irqsave(&c->ext_slock, flags);
+		if (c->ext) {
+			c->ext->size = isoc_blk_sz;
+			c->ext->count = isoc_blk_num;
+		}
+		list_for_each_entry(ext, &c->exts, head) {
+			ext->size = isoc_blk_sz;
+			ext->count = isoc_blk_num;
+		}
+		spin_unlock_irqrestore(&c->ext_slock, flags);
 	}
 	pr_debug("%s (%s)\n", c->name, dir == MOST_CH_TX ? "tx" : "rx");
 unlock:
@@ -1073,6 +1085,7 @@ static int __init mod_init(void)
 			strlcpy(c->name, "isoc", sizeof(c->name));
 		c->devno = MKDEV(MAJOR(aim_devno), MINOR_BASE + c - aim_channels);
 		spin_lock_init(&c->ext_slock);
+		INIT_LIST_HEAD(&c->exts);
 		INIT_KFIFO(c->fifo);
 		init_waitqueue_head(&c->wq);
 		mutex_init(&c->io_mutex);
@@ -1198,6 +1211,8 @@ int mlb150_ext_register(struct mlb150_ext *ext)
 		if (ch_data_type(c) == MOST_CH_ISOC)
 			minor -= number_sync_channels;
 		if (ext->ctype == ctype && ext->minor == minor) {
+			ulong flags;
+
 			ext->size = 0;
 			ext->count = 0;
 			if (ext->setup)
@@ -1205,6 +1220,9 @@ int mlb150_ext_register(struct mlb150_ext *ext)
 			if (ret)
 				break;
 			ext->aim = c;
+			spin_lock_irqsave(&c->ext_slock, flags);
+			list_add_tail(&ext->head, &c->exts);
+			spin_unlock_irqrestore(&c->ext_slock, flags);
 			break;
 		}
 	}
@@ -1222,13 +1240,15 @@ EXPORT_SYMBOL(mlb150_ext_register);
 void mlb150_ext_unregister(struct mlb150_ext *ext)
 {
 	if (ext->aim) {
+		struct aim_channel *c = ext->aim;
 		ulong flags;
 
-		spin_lock_irqsave(&ext->aim->ext_slock, flags);
-		if (ext->aim->ext == ext)
-			ext->aim->ext = NULL;
+		spin_lock_irqsave(&c->ext_slock, flags);
+		if (c->ext == ext)
+			c->ext = NULL;
+		list_del(&ext->head);
+		spin_unlock_irqrestore(&c->ext_slock, flags);
 		ext->aim = NULL;
-		spin_unlock_irqrestore(&ext->aim->ext_slock, flags);
 	}
 }
 EXPORT_SYMBOL(mlb150_ext_unregister);
