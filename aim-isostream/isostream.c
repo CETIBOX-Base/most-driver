@@ -386,19 +386,7 @@ int most_video_init_device(struct most_video_device *dev,
 	q = &dev->vb_vidq;
 	q->type = vidq_buf_type;
 	q->io_modes = vidq_io_modes;
-	/*
-	 * v3.9+ introduced a mandatory type of timestamp (timestamp_type),
-	 * which was later (around 3.14) renamed to timestamp_flags.
-	 * Some vendor trees picked up the interface change in the trees
-	 * based on the earlier releases though.
-	 */
-#ifdef V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC
-#ifdef V4L2_BUF_FLAG_TSTAMP_SRC_MASK
 	q->timestamp_flags |= V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-#else
-	q->timestamp_type |= V4L2_BUF_FLAG_TIMESTAMP_MONOTONIC;
-#endif
-#endif
 	q->drv_priv = dev;
 	q->buf_struct_size = sizeof(struct frame);
 	q->ops = vb_ops;
