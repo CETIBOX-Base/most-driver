@@ -12,6 +12,7 @@
 #include <linux/errno.h>
 #include <linux/platform_device.h>
 #include <media/videobuf2-vmalloc.h>
+#include "mostcore.h"
 #include "isostream.h"
 
 MODULE_DESCRIPTION("MOST Video Driver");
@@ -292,19 +293,19 @@ static void cleanup_frameq(struct most_video_device *mvdev)
 	/* Release all todo buffers */
 	while (!list_empty(&vidq->todo)) {
 		struct frame *buf;
+
 		buf = list_entry(vidq->todo.next, struct frame, list);
 		list_del(&buf->list);
 		vb2_buffer_done(&buf->vb4.vb2_buf, VB2_BUF_STATE_ERROR);
 		pr_debug("[%p/%d] released\n", buf, buf->vb4.vb2_buf.index);
 	}
-	/* return all withheld dmabufs */
+	/* return all withheld mbos */
 	while (!list_empty(&vidq->input)) {
-		struct mlb150_dmabuf *dmab = list_entry(vidq->input.next,
-							struct mlb150_dmabuf,
-							head);
+		struct mbo *mbo = list_entry(vidq->input.next,
+					     struct mbo, list);
 
-		__list_del_entry(&dmab->head);
-		mlb150_ext_free_dmabuf(mvdev->ext, dmab);
+		list_del(&mbo->list);
+		most_put_mbo(mbo);
 	}
 	vidq->offset = 0;
 	spin_unlock_irqrestore(&mvdev->slock, flags);
@@ -315,6 +316,7 @@ void most_video_stop_streaming(struct vb2_queue *vq)
 	struct most_video_device *dev = vb2_get_drv_priv(vq);
 
 	pr_debug("%s: stopping streaming\n", video_device_node_name(&dev->vdev));
+	mlb150_lock_channel(dev->ext, false);
 	atomic_set(&dev->running, 0);
 	cleanup_frameq(dev);
 }
@@ -407,7 +409,7 @@ int most_video_init_device(struct most_video_device *dev,
 		goto unreg_dev;
 	}
 	mutex_init(&dev->mutex);
-	/* The video buffer and dmabuf queues */
+	/* The video buffer and mbo queues */
 	INIT_LIST_HEAD(&dev->vidq.todo);
 	INIT_LIST_HEAD(&dev->vidq.input);
 	dev->vidq.offset = 0;

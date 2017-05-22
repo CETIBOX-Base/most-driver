@@ -47,36 +47,8 @@ enum channelmode {
 	MLB_CHANNEL_UNDEFINED = -1
 };
 
-struct mlb150_dmabuf {
-	struct list_head head;
-	void *virt;
-	dma_addr_t phys;
-	unsigned long flags;
-};
-
-struct mlb150_io_buffers {
-	struct list_head in;
-	struct list_head out;
-};
-
-static inline struct mlb150_dmabuf *mlb150_ext_get_dmabuf(struct mlb150_io_buffers *bufs)
-{
-	struct mlb150_dmabuf *dmab;
-
-	if (list_empty(&bufs->in))
-		return NULL;
-
-	dmab = list_first_entry(&bufs->in, struct mlb150_dmabuf, head);
-	list_del(&dmab->head);
-	return dmab;
-}
-
-static inline void mlb150_ext_put_dmabuf(struct mlb150_io_buffers *bufs, struct mlb150_dmabuf *dmab)
-{
-	list_add_tail(&dmab->head, &bufs->out);
-}
-
 struct aim_channel;
+struct mbo;
 
 struct mlb150_ext {
 	struct list_head head;
@@ -84,15 +56,14 @@ struct mlb150_ext {
 	int minor;
 	unsigned int size, count;
 	int (*setup)(struct mlb150_ext *, struct device *);
-	void (*rx)(struct mlb150_ext *, struct mlb150_io_buffers *);
+	void (*rx)(struct mlb150_ext *, struct mbo *);
 	void (*tx)(struct mlb150_ext *);
 	void (*cleanup)(struct mlb150_ext *);
 	struct aim_channel *aim;
 };
 
-int mlb150_ext_get_tx_buffers(struct mlb150_ext *, struct mlb150_io_buffers *);
-int mlb150_ext_put_tx_buffers(struct mlb150_ext *, struct mlb150_io_buffers *);
-void mlb150_ext_free_dmabuf(struct mlb150_ext *, struct mlb150_dmabuf *);
+int mlb150_ext_get_tx_mbo(struct mlb150_ext *, struct mbo **);
+int mlb150_ext_submit_mbo(struct mlb150_ext *, struct mbo *);
 int mlb150_ext_register(struct mlb150_ext *);
 void mlb150_ext_unregister(struct mlb150_ext *);
 int mlb150_lock_channel(struct mlb150_ext *, bool lock);

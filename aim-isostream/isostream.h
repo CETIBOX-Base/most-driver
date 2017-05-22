@@ -50,7 +50,7 @@ struct frame {
 struct frame_queue {
 	/* todo is protected by slock in the container */
 	struct list_head           todo;
-	struct list_head           input; /* dmabufs retrieved from mlb150 */
+	struct list_head           input; /* mbos retrieved from mlb150 and mostcore */
 	unsigned int               offset; /* how much of the first dmabuf has been used */
 };
 
@@ -107,23 +107,9 @@ struct isostream_mlb150_ext {
 	struct mlb150_ext ext;
 };
 
-struct mlb150_io_buffers;
-void isostream_rx_isr(struct mlb150_ext *, struct mlb150_io_buffers *);
+struct mbo;
+void isostream_rx_isr(struct mlb150_ext *, struct mbo *);
 void isostream_tx_isr(struct mlb150_ext *);
-
-/* v4l2_get_timestamp was officially introduced in 3.9 */
-#include <linux/version.h>
-#if LINUX_VERSION_CODE < KERNEL_VERSION(3, 9, 0)
-#include <linux/ktime.h>
-static inline void v4l2_get_timestamp(struct timeval *tv)
-{
-	struct timespec ts;
-
-	ktime_get_ts(&ts);
-	tv->tv_sec = ts.tv_sec;
-	tv->tv_usec = ts.tv_nsec / NSEC_PER_USEC;
-}
-#endif
 
 #endif /* _ISOSTREAM_H_ */
 

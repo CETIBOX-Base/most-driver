@@ -7,73 +7,70 @@
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
 #include <media/videobuf2-v4l2.h>
+#include "mostcore.h"
 #include "isostream.h"
 
-/* Copy frames from the list of video buffers (vidq.todo) to the dmabufs */
-static void copy_frames(struct most_video_device *dev)
+/* Copy frames from the list of video buffers (vidq.todo) to the mbos */
+static void copy_frames(struct most_video_device *dev, struct list_head *submit)
 	__must_hold(&dev->slock)
 {
 	const uint frmcount = dev->mlb_frm_cnt,
 	      frmsize = dev->mlb_frm_size;
-	struct mlb150_dmabuf *dmab, *next;
-	struct mlb150_io_buffers bufs;
+	struct mbo *mbo, *next;
 	struct frame_queue *vidq = &dev->vidq;
-	int ret = mlb150_ext_get_tx_buffers(dev->ext, &bufs);
+	int ret = mlb150_ext_get_tx_mbo(dev->ext, &mbo);
 
-	/*
-	 * EAGAIN means there were no free dmabufs added. The `bufs` can be
-	 * still used for TX.
-	 */
 	if (!(ret == 0 || ret == -EAGAIN))
 		return;
 	if (ret != -EAGAIN)
-		list_splice_tail_init(&bufs.in, &vidq->input);
-	list_for_each_entry_safe(dmab, next, &vidq->input, head) {
-		void *dmap = dmab->virt + vidq->offset,
-		      *dma_end = dmab->virt + frmcount * frmsize;
+		list_add(&mbo->list, &vidq->input);
+	list_for_each_entry_safe(mbo, next, &vidq->input, list) {
+		void *datap = mbo->virt_address + vidq->offset,
+		      *data_end = mbo->virt_address + frmcount * frmsize;
 
 		while (!list_empty(&vidq->todo)) {
 			struct frame *buf = list_entry(vidq->todo.next,
 						       struct frame, list);
-			ulong size = min_t(ulong, vb2_plane_size(&buf->vb4.vb2_buf, 0),
-					   frmsize);
+			ulong size = min_t(ulong,
+				vb2_plane_size(&buf->vb4.vb2_buf, 0),
+				frmsize);
 
 			__list_del_entry(&buf->list);
 			buf->vb4.sequence = dev->frame_sequence++;
-			memcpy(dmap, buf->plane0, size);
-			dmap += size;
+			memcpy(datap, buf->plane0, size);
+			datap += size;
 			v4l2_get_timestamp(&buf->vb4.timestamp);
 			vb2_buffer_done(&buf->vb4.vb2_buf, VB2_BUF_STATE_DONE);
-			if (dmap == dma_end)
-				goto next_dmab;
+			if (datap == data_end)
+				goto next_mbo;
 		}
-		if (dmap < dma_end) {
-			vidq->offset = dmap - dmab->virt;
+		if (datap < data_end) {
+			vidq->offset = datap - mbo->virt_address;
 			break;
 		}
-	next_dmab:
+	next_mbo:
 		vidq->offset = 0;
-		__list_del_entry(&dmab->head);
-		mlb150_ext_put_dmabuf(&bufs, dmab);
+		list_del(&mbo->list);
+		list_add_tail(&mbo->list, &submit);
 	}
-	mlb150_ext_put_tx_buffers(dev->ext, &bufs);
 }
 
 void isostream_tx_isr(struct mlb150_ext *ext)
 {
-	ulong flags;
 	struct most_video_device *dev =
 		container_of(ext, struct isostream_mlb150_ext, ext)->output;
 
 	pr_debug("TX on %s\n", video_device_node_name(&dev->vdev));
-
-	/*
-	 * Only pass the buffers if the v4l2 interface is used;
-	 */
 	if (atomic_read(&dev->running)) {
+		LIST_HEAD(submit);
+		struct mbo *mbo, *next;
+		ulong flags;
+
 		spin_lock_irqsave(&dev->slock, flags);
-		copy_frames(dev);
+		copy_frames(dev, &submit);
 		spin_unlock_irqrestore(&dev->slock, flags);
+		list_for_each_entry_safe(mbo, next, &submit, list)
+			most_submit_mbo(mbo);
 	}
 }
 
@@ -83,22 +80,30 @@ static void buf_queue(struct vb2_buffer *vb)
 	struct vb2_v4l2_buffer *vb4 = to_vb2_v4l2_buffer(vb);
 	struct frame *buf = container_of(vb4, struct frame, vb4);
 	struct frame_queue *vidq = &dev->vidq;
+	LIST_HEAD(submit);
+	struct mbo *mbo, *next;
 	unsigned long flags;
 
 	pr_debug("[%p/%d] todo\n", buf, buf->vb4.vb2_buf.index);
 	spin_lock_irqsave(&dev->slock, flags);
 	list_add_tail(&buf->list, &vidq->todo);
-	copy_frames(dev);
+	copy_frames(dev, &submit);
 	spin_unlock_irqrestore(&dev->slock, flags);
+	list_for_each_entry_safe(mbo, next, &submit, list)
+		most_submit_mbo(mbo);
 }
 
 static int start_streaming(struct vb2_queue *vq, unsigned int count)
 {
 	struct most_video_device *dev = vb2_get_drv_priv(vq);
+	LIST_HEAD(submit);
+	struct mbo *mbo, *next;
 
 	pr_debug("Start streaming with count=%u\n", count);
 	atomic_set(&dev->running, 1);
-	copy_frames(dev);
+	copy_frames(dev, &submit);
+	list_for_each_entry_safe(mbo, next, &submit, list)
+		most_submit_mbo(mbo);
 	return 0;
 }
 

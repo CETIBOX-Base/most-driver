@@ -63,7 +63,6 @@ struct mostcore_channel;
 struct aim_channel {
 	char name[20 /* MLB_DEV_NAME_SIZE */];
 	wait_queue_head_t wq;
-	spinlock_t unlink;	/* synchronization lock to unlink channels */
 	dev_t devno;
 	struct device *dev;
 	struct mutex io_mutex;
@@ -73,7 +72,8 @@ struct aim_channel {
 	size_t mbo_offs;
 	DECLARE_KFIFO_PTR(fifo, typeof(struct mbo *));
 	int users;
-	struct mlb150_ext *ext; /* FIXME needs access spinlock */
+	struct mlb150_ext *ext;
+	spinlock_t ext_slock;
 
 	rwlock_t stat_lock;
 	long long tx_bytes, rx_bytes, rx_pkts, tx_pkts;
@@ -671,6 +671,8 @@ static int aim_release(struct inode *inode, struct file *filp)
 
 static int aim_rx_completion(struct mbo *mbo)
 {
+	ulong flags;
+	struct mlb150_ext *ext;
 	struct mostcore_channel *most;
 
 	pr_debug("mbo %p\n", mbo);
@@ -679,15 +681,15 @@ static int aim_rx_completion(struct mbo *mbo)
 	most = get_channel(mbo->ifp, mbo->hdm_channel_id);
 	if (!most)
 		return -ENXIO;
-	// FIXME needs a lock to protect against extension being unregd
-	if (most->aim->ext) {
-		struct mlb150_ext *ext = most->aim->ext;
-
+	spin_lock_irqsave(&most->aim->ext_slock, flags);
+	ext = most->aim->ext;
+	spin_unlock_irqrestore(&most->aim->ext_slock, flags);
+	if (ext) {
 		if (ext->rx)
 			ext->rx(ext, mbo);
 		else
 			most_put_mbo(mbo);
-		return -EUSERS;
+		return 0;
 	}
 	kfifo_in(&most->aim->fifo, &mbo, 1);
 	wake_up_interruptible(&most->aim->wq);
@@ -696,19 +698,21 @@ static int aim_rx_completion(struct mbo *mbo)
 
 static int aim_tx_completion(struct most_interface *iface, int channel_id)
 {
+	ulong flags;
+	struct mlb150_ext *ext;
 	struct mostcore_channel *most;
 
 	pr_debug("iface %p, channel_id %d\n", iface, channel_id);
 	most = get_channel(iface, channel_id);
 	if (!most)
 		return -ENXIO;
-	// FIXME needs a lock to protect against extension being unregd
-	if (most->aim->ext) {
-		struct mlb150_ext *ext = most->aim->ext;
-
+	spin_lock_irqsave(&most->aim->ext_slock, flags);
+	ext = most->aim->ext;
+	spin_unlock_irqrestore(&most->aim->ext_slock, flags);
+	if (ext) {
 		if (ext->tx)
 			ext->tx(ext);
-		return -EUSERS;
+		return 0;
 	}
 	wake_up_interruptible(&most->aim->wq);
 	return 0;
@@ -723,9 +727,12 @@ static int aim_disconnect_channel(struct most_interface *iface, int channel_id)
 	if (!most)
 		return -ENXIO;
 	if (most->aim) {
-		struct mlb150_ext *ext = most->aim->ext;
+		ulong flags;
+		struct mlb150_ext *ext;
 
-		// FIXME needs a lock to protect against extension being unregd
+		spin_lock_irqsave(&most->aim->ext_slock, flags);
+		ext = most->aim->ext;
+		spin_unlock_irqrestore(&most->aim->ext_slock, flags);
 		if (ext && ext->cleanup)
 			ext->cleanup(ext);
 		mutex_lock(&most->aim->io_mutex);
@@ -1065,7 +1072,7 @@ static int __init mod_init(void)
 		else
 			strlcpy(c->name, "isoc", sizeof(c->name));
 		c->devno = MKDEV(MAJOR(aim_devno), MINOR_BASE + c - aim_channels);
-		spin_lock_init(&c->unlink);
+		spin_lock_init(&c->ext_slock);
 		INIT_KFIFO(c->fifo);
 		init_waitqueue_head(&c->wq);
 		mutex_init(&c->io_mutex);
@@ -1146,22 +1153,32 @@ unsigned int mlb150_ext_get_isoc_channel_count(void)
 }
 EXPORT_SYMBOL(mlb150_ext_get_isoc_channel_count);
 
-int mlb150_ext_get_tx_buffers(struct mlb150_ext *ext, struct mlb150_io_buffers *bufs)
+int mlb150_ext_get_tx_mbo(struct mlb150_ext *ext, struct mbo **mbo)
 {
-	return -ENOTSUPP;
-}
-EXPORT_SYMBOL(mlb150_ext_get_tx_buffers);
+	int ret;
+	ulong flags;
+	struct aim_channel *c = ext->aim;
 
-int mlb150_ext_put_tx_buffers(struct mlb150_ext *ext, struct mlb150_io_buffers *bufs)
-{
-	return -ENOTSUPP;
+	if (!c)
+		return -EINVAL;
+	ret = 0;
+	spin_lock_irqsave(&c->ext_slock, flags);
+	if (c->ext != ext)
+		ret = -EBUSY;
+	spin_unlock_irqrestore(&c->ext_slock, flags);
+	if (ret)
+		return ret;
+	mutex_lock(&c->io_mutex);
+	if (channel_has_mbo(c->most->iface, c->most->channel_id, &aim)) {
+		*mbo = most_get_mbo(c->most->iface, c->most->channel_id, &aim);
+		if (!*mbo)
+			ret = -EAGAIN;
+	} else
+		ret = -EAGAIN;
+	mutex_unlock(&c->io_mutex);
+	return ret;
 }
-EXPORT_SYMBOL(mlb150_ext_put_tx_buffers);
-
-void mlb150_ext_free_dmabuf(struct mlb150_ext *ext, struct mlb150_dmabuf *dmab)
-{
-}
-EXPORT_SYMBOL(mlb150_ext_free_dmabuf);
+EXPORT_SYMBOL(mlb150_ext_get_tx_mbo);
 
 int mlb150_ext_register(struct mlb150_ext *ext)
 {
@@ -1205,21 +1222,33 @@ EXPORT_SYMBOL(mlb150_ext_register);
 void mlb150_ext_unregister(struct mlb150_ext *ext)
 {
 	if (ext->aim) {
+		ulong flags;
+
+		spin_lock_irqsave(&ext->aim->ext_slock, flags);
 		if (ext->aim->ext == ext)
 			ext->aim->ext = NULL;
 		ext->aim = NULL;
+		spin_unlock_irqrestore(&ext->aim->ext_slock, flags);
 	}
 }
 EXPORT_SYMBOL(mlb150_ext_unregister);
 
 int mlb150_lock_channel(struct mlb150_ext *ext, bool on)
 {
+	int ret;
+	ulong flags;
+
 	if (!ext->aim)
 		return -EINVAL;
-	if (ext->aim->ext && on)
-		return -EBUSY;
-	ext->aim->ext = on ? ext : NULL;
-	return 0;
+	spin_lock_irqsave(&ext->aim->ext_slock, flags);
+	ret = 0;
+	if (on) {
+		if (ext->aim->ext)
+			ret = -EBUSY;
+	} else
+		ext->aim->ext = NULL;
+	spin_unlock_irqrestore(&ext->aim->ext_slock, flags);
+	return ret;
 }
 EXPORT_SYMBOL(mlb150_lock_channel);
 

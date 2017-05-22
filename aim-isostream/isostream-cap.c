@@ -7,6 +7,7 @@
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
 #include <media/videobuf2-v4l2.h>
+#include "mostcore.h"
 #include "isostream.h"
 
 /* Copy frames from the input dmabuf queue to the video buffers in vidq.todo */
@@ -15,12 +16,12 @@ static void copy_frames(struct most_video_device *dev)
 {
 	const uint frmcount = dev->mlb_frm_cnt,
 	      frmsize = dev->mlb_frm_size;
-	struct mlb150_dmabuf *dmab, *next;
+	struct mbo *mbo, *next;
 	struct frame_queue *vidq = &dev->vidq;
 
-	list_for_each_entry_safe(dmab, next, &vidq->input, head) {
-		const void *dmap = dmab->virt + vidq->offset,
-		      *dma_end = dmab->virt + frmcount * frmsize;
+	list_for_each_entry_safe(mbo, next, &vidq->input, list) {
+		const void *datap = mbo->virt_address + vidq->offset,
+		      *data_end = mbo->virt_address + frmcount * frmsize;
 
 		while (!list_empty(&vidq->todo)) {
 			struct frame *buf = list_entry(vidq->todo.next,
@@ -30,33 +31,31 @@ static void copy_frames(struct most_video_device *dev)
 
 			__list_del_entry(&buf->list);
 			buf->vb4.sequence = dev->frame_sequence++;
-			memcpy(buf->plane0, dmap, size);
-			dmap += size;
+			memcpy(buf->plane0, datap, size);
+			datap += size;
 			vb2_set_plane_payload(&buf->vb4.vb2_buf, 0, size);
 			v4l2_get_timestamp(&buf->vb4.timestamp);
 			vb2_buffer_done(&buf->vb4.vb2_buf, VB2_BUF_STATE_DONE);
-			if (dmap == dma_end)
+			if (datap == data_end)
 				goto next_dmab;
 		}
-		if (dmap < dma_end) {
-			vidq->offset = dmap - dmab->virt;
+		if (datap < data_end) {
+			vidq->offset = datap - mbo->virt_address;
 			break;
 		}
 	next_dmab:
 		vidq->offset = 0;
-		list_del(&dmab->head);
-		mlb150_ext_free_dmabuf(dev->ext, dmab);
+		list_del(&mbo->list);
+		most_put_mbo(mbo);
 	}
 }
 
-static void mlb_recv_data(struct most_video_device *dev, struct mlb150_io_buffers *bufs)
+static void mlb_recv_data(struct most_video_device *dev, struct mbo *mbo)
 {
 	unsigned long flags;
-	struct mlb150_dmabuf *dmab;
 
 	spin_lock_irqsave(&dev->slock, flags);
-	while ((dmab = mlb150_ext_get_dmabuf(bufs)))
-		list_add_tail(&dmab->head, &dev->vidq.input);
+	list_add_tail(&mbo->list, &dev->vidq.input);
 	if (!list_empty(&dev->vidq.todo))
 		copy_frames(dev);
 	spin_unlock_irqrestore(&dev->slock, flags);
@@ -66,7 +65,7 @@ static void mlb_recv_data(struct most_video_device *dev, struct mlb150_io_buffer
 	Interrupt handler
    ------------------------------------------------------------------*/
 
-void isostream_rx_isr(struct mlb150_ext *ext, struct mlb150_io_buffers *bufs)
+void isostream_rx_isr(struct mlb150_ext *ext, struct mbo *mbo)
 {
 	struct most_video_device *dev =
 		container_of(ext, struct isostream_mlb150_ext, ext)->capture;
@@ -75,7 +74,9 @@ void isostream_rx_isr(struct mlb150_ext *ext, struct mlb150_io_buffers *bufs)
 	pr_debug("RX on %s%s\n", video_device_node_name(&dev->vdev),
 		 running ? " running" : "");
 	if (running)
-		mlb_recv_data(dev, bufs);
+		mlb_recv_data(dev, mbo);
+	else
+		most_put_mbo(mbo);
 }
 
 static void buf_queue(struct vb2_buffer *vb)
@@ -99,6 +100,7 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 	struct most_video_device *dev = vb2_get_drv_priv(vq);
 
 	atomic_set(&dev->running, true);
+	mlb150_lock_channel(dev->ext, true);
 
 	return 0;
 }
