@@ -102,6 +102,20 @@ static const struct most_channel_config sync_tx_cfg = {
 	.buffer_size = 512,
 };
 
+static const struct most_channel_config isoc_rx_cfg = {
+	.direction = MOST_CH_RX,
+	.data_type = MOST_CH_ISOC,
+	.num_buffers = 8,
+	.buffer_size = 1504,
+};
+
+static const struct most_channel_config isoc_tx_cfg = {
+	.direction = MOST_CH_TX,
+	.data_type = MOST_CH_ISOC,
+	.num_buffers = 8,
+	.buffer_size = 1504,
+};
+
 static const char AIM_MLB150[] = "mlb150";
 static const char AIM_SYNCSOUND[] = "syncsound";
 
@@ -144,6 +158,12 @@ static struct most_config_probe config_probes_mlb150[] = {
 		.aim_param = "18/" SYNC_FMT_CFG,
 	},
 	{
+		.ch_name = "ep07",
+		.cfg = &isoc_tx_cfg,
+		.aim_name = AIM_MLB150,
+		.aim_param = "25/188,2",
+	},
+	{
 		.ch_name = "ep81",
 		.cfg = &sync_rx_cfg,
 		.aim_name = AIM_MLB150,
@@ -178,6 +198,12 @@ static struct most_config_probe config_probes_mlb150[] = {
 		.cfg = &sync_rx_cfg,
 		.aim_name = AIM_MLB150,
 		.aim_param = "17/" SYNC_FMT_CFG,
+	},
+	{
+		.ch_name = "ep87",
+		.cfg = &isoc_rx_cfg,
+		.aim_name = AIM_MLB150,
+		.aim_param = "20/188,2",
 	},
 	{}
 };
