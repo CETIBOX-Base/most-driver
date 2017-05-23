@@ -105,6 +105,7 @@ static const struct mostcore_param def_isoc_param[] = {
 	[ISOC_FRMSIZ_188] = { .fpt = 512 / 188 },
 	[ISOC_FRMSIZ_192] = { .fpt = 512 / 192 },
 	[ISOC_FRMSIZ_196] = { .fpt = 512 / 196 },
+	[ISOC_FRMSIZ_206] = { .fpt = 512 / 206 },
 };
 
 struct mostcore_channel {
