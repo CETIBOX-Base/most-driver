@@ -39,6 +39,7 @@ static void copy_frames(struct most_video_device *dev, struct list_head *submit)
 			buf->vb4.sequence = dev->frame_sequence++;
 			memcpy(datap, buf->plane0, size);
 			datap += size;
+			vb2_set_plane_payload(&buf->vb4.vb2_buf, 0, size);
 			v4l2_get_timestamp(&buf->vb4.timestamp);
 			vb2_buffer_done(&buf->vb4.vb2_buf, VB2_BUF_STATE_DONE);
 			if (datap == data_end)
