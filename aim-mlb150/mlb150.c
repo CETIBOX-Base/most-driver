@@ -484,9 +484,25 @@ static int mlb150_chan_startup(struct aim_channel *c, uint accmode)
 	}
 	most->aim = c;
 	c->most = most;
-	most->cfg->packets_per_xact = most->params[0].fpt;
 	most->cfg->subbuffer_size = c->ext_isoc_blk_sz;
 	most->cfg->buffer_size = c->ext_isoc_blk_num * most->cfg->subbuffer_size;
+	switch (most->cfg->subbuffer_size) {
+	case 188:
+		most->cfg->packets_per_xact = most->params[ISOC_FRMSIZ_188].fpt;
+		break;
+	case 192:
+		most->cfg->packets_per_xact = most->params[ISOC_FRMSIZ_192].fpt;
+		break;
+	case 196:
+		most->cfg->packets_per_xact = most->params[ISOC_FRMSIZ_196].fpt;
+		break;
+	case 206:
+		most->cfg->packets_per_xact = most->params[ISOC_FRMSIZ_206].fpt;
+		break;
+	default:
+		most->cfg->packets_per_xact = most->params[ISOC_FRMSIZ_188].fpt;
+	}
+	pr_debug("most %p.%d -> aim %p\n", most, most - mlb_channels, most->aim);
 	ret = pre_start_most(c);
 	if (ret == 0)
 		ret = start_most(c);
