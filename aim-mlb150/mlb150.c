@@ -1341,10 +1341,17 @@ int mlb150_lock_channel(struct mlb150_ext *ext, bool on)
 	spin_lock_irqsave(&ext->aim->ext_slock, flags);
 	ret = 0;
 	if (on) {
-		if (ext->aim->ext)
+		if (ext->aim->ext) {
 			ret = -EBUSY;
-	} else
+			pr_debug("aim %s already locked to %p, %p refused\n", ext->aim->name, ext->aim->ext, ext);
+		} else {
+			ext->aim->ext = ext;
+			pr_debug("aim %s locked to %p\n", ext->aim->name, ext);
+		}
+	} else {
 		ext->aim->ext = NULL;
+		pr_debug("aim %s lock released from %p\n", ext->aim->name, ext);
+	}
 	spin_unlock_irqrestore(&ext->aim->ext_slock, flags);
 	return ret;
 }
