@@ -177,19 +177,30 @@ static struct mostcore_channel *get_channel(struct most_interface *iface, int id
 	return i;
 }
 
-static void remember_channel(struct most_interface *iface, int id,
-			     struct mostcore_channel *i)
+static int remember_channel(struct most_interface *iface, int id,
+			    struct mostcore_channel *i)
 {
+	int ret;
 	ulong flags;
+	struct mostcore_channel *p;
 	struct mostcore_channel **pos = aim_most;
 
-	i->iface = iface;
-	i->channel_id = id;
 	pos += get_channel_pos(iface, id) & 0xff;
 	spin_lock_irqsave(&aim_most_lock, flags);
+	for (p = *pos; p; p = p->next)
+		if (p->channel_id == id && p->iface == iface) {
+			ret = -EBUSY;
+			goto taken;
+		}
+	i->iface = iface;
+	i->channel_id = id;
 	i->next = *pos;
 	*pos = i;
+	ret = 0;
+taken:
 	spin_unlock_irqrestore(&aim_most_lock, flags);
+	pr_debug("[%d] ch %p.%d: iface %p.%d\n", pos - aim_most, i, i - mlb_channels, iface, id);
+	return ret;
 }
 
 static struct mostcore_channel *forget_channel(struct most_interface *iface, int id)
@@ -854,7 +865,11 @@ static int aim_probe(struct most_interface *iface, int channel_id,
 		memcpy(most->params, def_sync_param, sizeof(def_sync_param));
 	else if (cfg->data_type == MOST_CH_ISOC)
 		memcpy(most->params, def_isoc_param, sizeof(def_isoc_param));
-	remember_channel(iface, channel_id, most);
+	err = remember_channel(iface, channel_id, most);
+	if (err) {
+		most->cfg = NULL;
+		goto fail;
+	}
 	if (sp)
 		parse_mostcore_channel_params(most, sp);
 	pr_debug("mlb150 %s ch %d linked to %s.ch%d\n",
