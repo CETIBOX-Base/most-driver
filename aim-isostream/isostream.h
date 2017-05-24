@@ -5,6 +5,7 @@
 #define _ISOSTREAM_H_
 
 #include <linux/list.h>
+#include <linux/workqueue.h>
 #include <linux/videodev2.h>
 #include <media/v4l2-device.h>
 #include <media/v4l2-ctrls.h>
@@ -68,6 +69,7 @@ struct most_video_device {
 
 	spinlock_t                 slock;
 	struct mutex               mutex;
+	struct work_struct         wrk;
 
 	atomic_t                   running;
 	struct frame_queue         vidq;

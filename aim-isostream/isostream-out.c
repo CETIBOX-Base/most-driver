@@ -3,7 +3,6 @@
  * The V4L2 video output interface implementation.
  */
 #include <linux/errno.h>
-#include <linux/mutex.h>
 #include <media/v4l2-event.h>
 #include <media/v4l2-ioctl.h>
 #include <media/videobuf2-v4l2.h>
@@ -18,12 +17,7 @@ static void copy_frames(struct most_video_device *dev, struct list_head *submit)
 	      frmsize = dev->mlb_frm_size;
 	struct mbo *mbo, *next;
 	struct frame_queue *vidq = &dev->vidq;
-	int ret = mlb150_ext_get_tx_mbo(dev->ext, &mbo);
 
-	if (!(ret == 0 || ret == -EAGAIN))
-		return;
-	if (ret != -EAGAIN)
-		list_add(&mbo->list, &vidq->input);
 	list_for_each_entry_safe(mbo, next, &vidq->input, list) {
 		void *datap = mbo->virt_address + vidq->offset,
 		      *data_end = mbo->virt_address + frmcount * frmsize;
@@ -52,8 +46,27 @@ static void copy_frames(struct most_video_device *dev, struct list_head *submit)
 	next_mbo:
 		vidq->offset = 0;
 		list_del(&mbo->list);
-		list_add_tail(&mbo->list, &submit);
+		list_add_tail(&mbo->list, submit);
 	}
+}
+
+void tx_complete(struct work_struct *wrk)
+{
+	struct most_video_device *dev =
+		container_of(wrk, struct most_video_device, wrk);
+	LIST_HEAD(submit);
+	struct mbo *mbo, *next;
+	ulong flags;
+
+	if (unlikely(!atomic_read(&dev->running)))
+		return;
+	if (mlb150_ext_get_tx_mbo(dev->ext, &mbo) == 0)
+		list_add(&mbo->list, &dev->vidq.input);
+	spin_lock_irqsave(&dev->slock, flags);
+	copy_frames(dev, &submit);
+	spin_unlock_irqrestore(&dev->slock, flags);
+	list_for_each_entry_safe(mbo, next, &submit, list)
+		most_submit_mbo(mbo);
 }
 
 void isostream_tx_isr(struct mlb150_ext *ext)
@@ -61,18 +74,8 @@ void isostream_tx_isr(struct mlb150_ext *ext)
 	struct most_video_device *dev =
 		container_of(ext, struct isostream_mlb150_ext, ext)->output;
 
-	pr_debug("TX on %s\n", video_device_node_name(&dev->vdev));
-	if (atomic_read(&dev->running)) {
-		LIST_HEAD(submit);
-		struct mbo *mbo, *next;
-		ulong flags;
-
-		spin_lock_irqsave(&dev->slock, flags);
-		copy_frames(dev, &submit);
-		spin_unlock_irqrestore(&dev->slock, flags);
-		list_for_each_entry_safe(mbo, next, &submit, list)
-			most_submit_mbo(mbo);
-	}
+	pr_debug_ratelimited("TX on %s\n", video_device_node_name(&dev->vdev));
+	queue_work(system_highpri_wq, &dev->wrk);
 }
 
 static void buf_queue(struct vb2_buffer *vb)
@@ -80,14 +83,17 @@ static void buf_queue(struct vb2_buffer *vb)
 	struct most_video_device *dev = vb2_get_drv_priv(vb->vb2_queue);
 	struct vb2_v4l2_buffer *vb4 = to_vb2_v4l2_buffer(vb);
 	struct frame *buf = container_of(vb4, struct frame, vb4);
-	struct frame_queue *vidq = &dev->vidq;
 	LIST_HEAD(submit);
 	struct mbo *mbo, *next;
 	unsigned long flags;
+	int ret;
 
 	pr_debug("[%p/%d] todo\n", buf, buf->vb4.vb2_buf.index);
+	ret = mlb150_ext_get_tx_mbo(dev->ext, &mbo);
 	spin_lock_irqsave(&dev->slock, flags);
-	list_add_tail(&buf->list, &vidq->todo);
+	if (ret == 0)
+		list_add(&mbo->list, &dev->vidq.input);
+	list_add_tail(&buf->list, &dev->vidq.todo);
 	copy_frames(dev, &submit);
 	spin_unlock_irqrestore(&dev->slock, flags);
 	list_for_each_entry_safe(mbo, next, &submit, list)
@@ -99,10 +105,19 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 	struct most_video_device *dev = vb2_get_drv_priv(vq);
 	LIST_HEAD(submit);
 	struct mbo *mbo, *next;
+	ulong flags;
+	int ret;
 
 	pr_debug("Start streaming with count=%u\n", count);
+	ret = mlb150_ext_get_tx_mbo(dev->ext, &mbo);
+	if (!(ret == 0 || ret == -EAGAIN))
+		return ret;
 	atomic_set(&dev->running, 1);
+	spin_lock_irqsave(&dev->slock, flags);
+	if (ret == 0)
+		list_add(&mbo->list, &dev->vidq.input);
 	copy_frames(dev, &submit);
+	spin_unlock_irqrestore(&dev->slock, flags);
 	list_for_each_entry_safe(mbo, next, &submit, list)
 		most_submit_mbo(mbo);
 	return 0;
@@ -223,6 +238,7 @@ struct most_video_device *create_output_device(struct device *dmadev, int inst)
 	dev = kzalloc(sizeof(*dev), GFP_KERNEL);
 	if (!dev)
 		return ERR_PTR(-ENOMEM);
+	INIT_WORK(&dev->wrk, tx_complete);
 	snprintf(dev->v4l2_dev.name, sizeof(dev->v4l2_dev.name), "%s-%d",
 		 device_template.name, inst);
 	ret = most_video_init_device(dev, V4L2_BUF_TYPE_VIDEO_OUTPUT,
