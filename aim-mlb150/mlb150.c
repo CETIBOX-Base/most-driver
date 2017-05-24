@@ -74,6 +74,8 @@ struct aim_channel {
 	int users;
 	struct mlb150_ext *ext;
 	struct list_head exts;
+	uint ext_isoc_blk_sz;
+	uint ext_isoc_blk_num;
 	spinlock_t ext_slock;
 
 	rwlock_t stat_lock;
@@ -483,8 +485,8 @@ static int mlb150_chan_startup(struct aim_channel *c, uint accmode)
 	most->aim = c;
 	c->most = most;
 	most->cfg->packets_per_xact = most->params[0].fpt;
-	most->cfg->subbuffer_size = isoc_blk_sz;
-	most->cfg->buffer_size = isoc_blk_num * most->cfg->subbuffer_size;
+	most->cfg->subbuffer_size = c->ext_isoc_blk_sz;
+	most->cfg->buffer_size = c->ext_isoc_blk_num * most->cfg->subbuffer_size;
 	ret = pre_start_most(c);
 	if (ret == 0)
 		ret = start_most(c);
@@ -662,6 +664,23 @@ static long aim_mlb150_ioctl(struct file *filp, unsigned int cmd, unsigned long 
 	return ret;
 }
 
+static void mlb150_ext_update_isoc_blk(struct aim_channel *c)
+{
+	ulong flags;
+	struct mlb150_ext *ext;
+
+	spin_lock_irqsave(&c->ext_slock, flags);
+	if (c->ext) {
+		c->ext->size = c->ext_isoc_blk_sz;
+		c->ext->count = c->ext_isoc_blk_num;
+	}
+	list_for_each_entry(ext, &c->exts, head) {
+		ext->size = c->ext_isoc_blk_sz;
+		ext->count = c->ext_isoc_blk_num;
+	}
+	spin_unlock_irqrestore(&c->ext_slock, flags);
+}
+
 static int aim_open(struct inode *inode, struct file *filp)
 {
 	int ret;
@@ -689,19 +708,9 @@ static int aim_open(struct inode *inode, struct file *filp)
 	c->users++;
 	ret = 0;
 	if (ch_data_type(c) == MOST_CH_ISOC) {
-		ulong flags;
-		struct mlb150_ext *ext;
-
-		spin_lock_irqsave(&c->ext_slock, flags);
-		if (c->ext) {
-			c->ext->size = isoc_blk_sz;
-			c->ext->count = isoc_blk_num;
-		}
-		list_for_each_entry(ext, &c->exts, head) {
-			ext->size = isoc_blk_sz;
-			ext->count = isoc_blk_num;
-		}
-		spin_unlock_irqrestore(&c->ext_slock, flags);
+		c->ext_isoc_blk_sz = isoc_blk_sz;
+		c->ext_isoc_blk_num = isoc_blk_num;
+		mlb150_ext_update_isoc_blk(c);
 	}
 	pr_debug("%s (%s)\n", c->name, dir == MOST_CH_TX ? "tx" : "rx");
 unlock:
