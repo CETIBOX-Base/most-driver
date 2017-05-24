@@ -367,7 +367,7 @@ static unsigned int aim_poll(struct file *filp, poll_table *wait)
 	return mask;
 }
 
-static int start_most(struct aim_channel *c)
+static int pre_start_most(struct aim_channel *c)
 	__must_hold(&c->io_mutex)
 {
 	int ret;
@@ -376,14 +376,30 @@ static int start_most(struct aim_channel *c)
 	if (ret)
 		return ret;
 	c->mbo_offs = 0;
+	return 0;
+}
+
+static int start_most(struct aim_channel *c)
+	__must_hold(&c->io_mutex)
+{
+	int ret;
+
 	ret = most_start_channel(c->most->iface, c->most->channel_id, &aim);
 	if (!ret)
 		c->most->started = 1;
-	pr_debug("%s.%zd (%s) subbuffer_size %u, buffer_size %u ret %d\n",
+	pr_debug("%s.%zd (iface %p.%d) (%s) subbuffer_size %u, buffer_size %u ret %d\n",
 		 c->name, c->most - mlb_channels,
+		 c->most->iface, c->most->channel_id,
 		 c->most->cfg->direction == MOST_CH_RX ? "rx" : "tx",
 		 c->most->cfg->subbuffer_size, c->most->cfg->buffer_size, ret);
 	return ret;
+}
+
+static void post_stop_most(struct aim_channel *c)
+	__must_hold(&c->io_mutex)
+{
+	kfifo_free(&c->fifo);
+	INIT_KFIFO(c->fifo);
 }
 
 static void stop_most(struct aim_channel *c)
@@ -402,8 +418,6 @@ static void stop_most(struct aim_channel *c)
 			most_put_mbo(mbo);
 		most_stop_channel(c->most->iface, c->most->channel_id, &aim);
 	}
-	kfifo_free(&c->fifo);
-	INIT_KFIFO(c->fifo);
 	c->most->started = 0;
 	c->most = NULL;
 }
@@ -471,7 +485,14 @@ static int mlb150_chan_startup(struct aim_channel *c, uint accmode)
 	most->cfg->packets_per_xact = most->params[0].fpt;
 	most->cfg->subbuffer_size = isoc_blk_sz;
 	most->cfg->buffer_size = isoc_blk_num * most->cfg->subbuffer_size;
-	ret = start_most(c);
+	ret = pre_start_most(c);
+	if (ret == 0)
+		ret = start_most(c);
+	if (ret) {
+		pr_debug("start_most failed %d\n", ret);
+		most->aim = NULL;
+		c->most = NULL;
+	}
 unlock:
 	mutex_unlock(&c->io_mutex);
 	return ret;
@@ -532,7 +553,14 @@ static int mlb150_sync_chan_startup(struct aim_channel *c, uint accmode,
 	most->cfg->subbuffer_size = bytes_per_frame;
 	most->cfg->buffer_size = max(SYNC_BUFFER_DEP(bytes_per_frame),
 				     c->mlb150_sync_buf_size);
-	ret = start_most(c);
+	ret = pre_start_most(c);
+	if (ret == 0)
+		ret = start_most(c);
+	if (ret) {
+		pr_debug("start_most failed %d\n", ret);
+		most->aim = NULL;
+		c->most = NULL;
+	}
 unlock:
 	mutex_unlock(&c->io_mutex);
 	return ret;
@@ -543,9 +571,10 @@ static int mlb150_chan_shutdown(struct aim_channel *c)
 	int ret = 0;
 
 	mutex_lock(&c->io_mutex);
-	if (c->most)
+	if (c->most) {
 		stop_most(c);
-	else
+		post_stop_most(c);
+	} else
 		ret = -EBADF;
 	mutex_unlock(&c->io_mutex);
 	return ret;
@@ -685,8 +714,10 @@ static int aim_release(struct inode *inode, struct file *filp)
 	struct aim_channel *c = filp->private_data;
 
 	mutex_lock(&c->io_mutex);
-	if (c->most && c->most->started)
+	if (c->most && c->most->started) {
 		stop_most(c);
+		post_stop_most(c);
+	}
 	if (c->users)
 		--c->users;
 	mutex_unlock(&c->io_mutex);
