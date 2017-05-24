@@ -739,24 +739,35 @@ static int aim_rx_completion(struct mbo *mbo)
 	struct mlb150_ext *ext;
 	struct mostcore_channel *most;
 
-	pr_debug("mbo %p\n", mbo);
-	if (!mbo)
+	pr_debug_ratelimited("mbo %p\n", mbo);
+	if (unlikely(!mbo))
 		return -EINVAL;
 	most = get_channel(mbo->ifp, mbo->hdm_channel_id);
-	if (!most)
+	if (unlikely(!most))
 		return -ENXIO;
+	if (unlikely(!most->aim)) {
+		pr_debug_ratelimited("mbo %p -> %p.%d (iface %p.%d): NO AIM\n",
+				     mbo, most, most - mlb_channels,
+				     mbo->ifp, mbo->hdm_channel_id);
+		most_put_mbo(mbo);
+		return 0;
+	}
 	spin_lock_irqsave(&most->aim->ext_slock, flags);
 	ext = most->aim->ext;
 	spin_unlock_irqrestore(&most->aim->ext_slock, flags);
 	if (ext) {
+		pr_debug_ratelimited("mbo %p -> %p.%d (iface %p.%d) -> ext %p.%p\n",
+				     mbo, most, most - mlb_channels,
+				     mbo->ifp, mbo->hdm_channel_id,
+				     ext, ext->rx);
 		if (ext->rx)
 			ext->rx(ext, mbo);
 		else
 			most_put_mbo(mbo);
-		return 0;
+	} else {
+		kfifo_in(&most->aim->fifo, &mbo, 1);
+		wake_up_interruptible(&most->aim->wq);
 	}
-	kfifo_in(&most->aim->fifo, &mbo, 1);
-	wake_up_interruptible(&most->aim->wq);
 	return 0;
 }
 
@@ -766,19 +777,25 @@ static int aim_tx_completion(struct most_interface *iface, int channel_id)
 	struct mlb150_ext *ext;
 	struct mostcore_channel *most;
 
-	pr_debug("iface %p, channel_id %d\n", iface, channel_id);
+	pr_debug_ratelimited("iface %p, channel_id %d\n", iface, channel_id);
 	most = get_channel(iface, channel_id);
-	if (!most)
+	if (unlikely(!most))
 		return -ENXIO;
+	if (unlikely(!most->aim)) {
+		pr_debug_ratelimited("%p.%d (iface %p.%d): NO AIM\n",
+				     most, most - mlb_channels,
+				     iface, channel_id);
+		return 0;
+	}
 	spin_lock_irqsave(&most->aim->ext_slock, flags);
 	ext = most->aim->ext;
 	spin_unlock_irqrestore(&most->aim->ext_slock, flags);
 	if (ext) {
 		if (ext->tx)
 			ext->tx(ext);
-		return 0;
+	} else {
+		wake_up_interruptible(&most->aim->wq);
 	}
-	wake_up_interruptible(&most->aim->wq);
 	return 0;
 }
 
@@ -1282,6 +1299,8 @@ int mlb150_ext_register(struct mlb150_ext *ext)
 			break;
 		}
 	}
+	if (!ext->aim)
+		ret = -ENOENT;
 	if (!ret)
 		pr_debug("registered '%s' extension on minor %d (%p)\n",
 			 MLB150_CTYPE_CTRL == ext->ctype ? "ctrl" :
