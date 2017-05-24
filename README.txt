@@ -1,4 +1,4 @@
-HOW TO BUILD
+	HOW TO BUILD
 
 export ARCH=... (i.e. "arm" or "x86_64)
 export CROSS_COMPILE=... (i.e. "arm-linux-gnueabihf-")
@@ -18,6 +18,10 @@ make -C .../kernel-build-dir \
     modules_install
 
 The .ko files will be copied into the path designated by the INSTALL_MOD_PATH.
+
+
+	HOW TO LOAD THE MODULES
+
 The modules must be loaded in the order below:
 
     mostcore.ko
@@ -26,9 +30,18 @@ The modules must be loaded in the order below:
     aim_cdev.ko
     aim_mlb150.ko
     aim_syncsound.ko
-    aim_v4l2.ko
+    aim_isostream.ko
     hdm_usb.ko
 
-Loading of the modules is not enough to get a working MOST interface, this
-configuration must be done separately.
+Unloading of the modules is best done in reverse order.
+
+For troubleshooting, the modules can be loaded with active dynamic debugging
+option. I.e.:
+
+    # insmod aim_mlb150.ko dyndbg=+pfml
+
+The tracing can be completely or partially disabled later:
+
+    # echo module aim_mlb150 func aim_rx_completion -p >/sys/kernel/debug/dynamic_debug/control
+
 
