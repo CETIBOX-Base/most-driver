@@ -107,7 +107,6 @@ static int start_streaming(struct vb2_queue *vq, unsigned int count)
 	struct most_video_device *dev = vb2_get_drv_priv(vq);
 
 	atomic_set(&dev->running, true);
-	mlb150_lock_channel(dev->ext, true);
 
 	return 0;
 }
@@ -167,8 +166,8 @@ static int vidioc_s_parm(struct file *file, void *fh, struct v4l2_streamparm *a)
 
 static const struct v4l2_file_operations file_ops = {
 	.owner		= THIS_MODULE,
-	.open           = v4l2_fh_open,
-	.release        = vb2_fop_release,
+	.open           = most_video_fh_open,
+	.release        = most_video_fh_release,
 	.read           = vb2_fop_read,
 	.poll		= vb2_fop_poll,
 	.unlocked_ioctl = video_ioctl2,

@@ -100,6 +100,8 @@ int most_video_buf_prepare(struct vb2_buffer *);
 void most_video_wait_prepare(struct vb2_queue *);
 void most_video_wait_finish(struct vb2_queue *);
 void most_video_stop_streaming(struct vb2_queue *);
+int most_video_fh_open(struct file *);
+int most_video_fh_release(struct file *);
 
 struct isostream_mlb150_ext {
 	struct most_video_device *capture;

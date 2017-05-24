@@ -316,9 +316,26 @@ void most_video_stop_streaming(struct vb2_queue *vq)
 	struct most_video_device *dev = vb2_get_drv_priv(vq);
 
 	pr_debug("%s: stopping streaming\n", video_device_node_name(&dev->vdev));
-	mlb150_lock_channel(dev->ext, false);
 	atomic_set(&dev->running, 0);
 	cleanup_frameq(dev);
+}
+
+int most_video_fh_open(struct file *filp)
+{
+	struct most_video_device *dev = video_drvdata(filp);
+	int ret = v4l2_fh_open(filp);
+
+	if (ret == 0)
+		ret = mlb150_lock_channel(dev->ext, true);
+	return ret;
+}
+
+int most_video_fh_release(struct file *filp)
+{
+	struct most_video_device *dev = video_drvdata(filp);
+
+	mlb150_lock_channel(dev->ext, false);
+	return vb2_fop_release(filp);
 }
 
 static int probe(struct platform_device *pdev)

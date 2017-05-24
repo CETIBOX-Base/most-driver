@@ -168,8 +168,8 @@ static ssize_t wrap_vb2_fop_write(struct file *file, const char __user *buf,
 
 static const struct v4l2_file_operations file_ops = {
 	.owner		= THIS_MODULE,
-	.open           = v4l2_fh_open,
-	.release        = vb2_fop_release,
+	.open           = most_video_fh_open,
+	.release        = most_video_fh_release,
 	.write          = wrap_vb2_fop_write,
 	.poll		= vb2_fop_poll,
 	.unlocked_ioctl = video_ioctl2,
