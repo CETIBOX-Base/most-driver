@@ -1129,7 +1129,8 @@ static int __init mod_init(void)
 		/* no control, no opt3, no async, no isoc-sync quirk */
 		number_sync_channels + number_isoc_channels;
 
-	pr_debug("\n");
+	pr_debug("sync %u, isoc %u\n",
+		 number_sync_channels, number_isoc_channels);
 
 	aim_channels = kzalloc(sizeof(*aim_channels) * used_minor_devices, GFP_KERNEL);
 	if (!aim_channels)
