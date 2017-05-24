@@ -1256,7 +1256,9 @@ int mlb150_ext_get_tx_mbo(struct mlb150_ext *ext, struct mbo **mbo)
 	if (ret)
 		return ret;
 	mutex_lock(&c->io_mutex);
-	if (channel_has_mbo(c->most->iface, c->most->channel_id, &aim)) {
+	if (!c->most)
+		ret = -ESHUTDOWN;
+	else if (channel_has_mbo(c->most->iface, c->most->channel_id, &aim)) {
 		*mbo = most_get_mbo(c->most->iface, c->most->channel_id, &aim);
 		if (!*mbo)
 			ret = -EAGAIN;
