@@ -201,7 +201,7 @@ static int remember_channel(struct most_interface *iface, int id,
 	ret = 0;
 taken:
 	spin_unlock_irqrestore(&aim_most_lock, flags);
-	pr_debug("[%d] ch %p.%d: iface %p.%d\n", pos - aim_most, i, i - mlb_channels, iface, id);
+	pr_debug("[%zd] ch %p.%zd: iface %p.%d\n", pos - aim_most, i, i - mlb_channels, iface, id);
 	return ret;
 }
 
@@ -502,7 +502,7 @@ static int mlb150_chan_startup(struct aim_channel *c, uint accmode)
 	default:
 		most->cfg->packets_per_xact = most->params[ISOC_FRMSIZ_188].fpt;
 	}
-	pr_debug("most %p.%d -> aim %p\n", most, most - mlb_channels, most->aim);
+	pr_debug("most %p.%zd -> aim %p\n", most, most - mlb_channels, most->aim);
 	ret = pre_start_most(c);
 	if (ret == 0)
 		ret = start_most(c);
@@ -762,7 +762,7 @@ static int aim_rx_completion(struct mbo *mbo)
 	if (unlikely(!most))
 		return -ENXIO;
 	if (unlikely(!most->aim)) {
-		pr_debug_ratelimited("mbo %p -> %p.%d (iface %p.%d): NO AIM\n",
+		pr_debug_ratelimited("mbo %p -> %p.%zd (iface %p.%d): NO AIM\n",
 				     mbo, most, most - mlb_channels,
 				     mbo->ifp, mbo->hdm_channel_id);
 		most_put_mbo(mbo);
@@ -772,7 +772,7 @@ static int aim_rx_completion(struct mbo *mbo)
 	ext = most->aim->ext;
 	spin_unlock_irqrestore(&most->aim->ext_slock, flags);
 	if (ext) {
-		pr_debug_ratelimited("mbo %p -> %p.%d (iface %p.%d) -> ext %p.%p\n",
+		pr_debug_ratelimited("mbo %p -> %p.%zd (iface %p.%d) -> ext %p.%p\n",
 				     mbo, most, most - mlb_channels,
 				     mbo->ifp, mbo->hdm_channel_id,
 				     ext, ext->rx);
@@ -798,7 +798,7 @@ static int aim_tx_completion(struct most_interface *iface, int channel_id)
 	if (unlikely(!most))
 		return -ENXIO;
 	if (unlikely(!most->aim)) {
-		pr_debug_ratelimited("%p.%d (iface %p.%d): NO AIM\n",
+		pr_debug_ratelimited("%p.%zd (iface %p.%d): NO AIM\n",
 				     most, most - mlb_channels,
 				     iface, channel_id);
 		return 0;
