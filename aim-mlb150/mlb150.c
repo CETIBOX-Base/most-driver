@@ -655,11 +655,8 @@ static long aim_mlb150_ioctl(struct file *filp, unsigned int cmd, unsigned long 
 		break;
 
 	case MLB_GET_ISOC_BUFSIZE:
-		/*
-		 * Return the size of this channel
-		 * FIXME: the original recalculates it in open and stores
-		 */
-		val = isoc_blk_sz * isoc_blk_num;
+		/* Return the size of this channel */
+		val = c->ext_isoc_blk_sz * c->ext_isoc_blk_num;
 		ret = copy_to_user(argp, &val, sizeof(val)) ? -EFAULT : 0;
 		break;
 
