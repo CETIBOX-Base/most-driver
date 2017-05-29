@@ -755,12 +755,14 @@ static int aim_rx_completion(struct mbo *mbo)
 	struct mlb150_ext *ext;
 	struct mostcore_channel *most;
 
-	pr_debug_ratelimited("mbo %p\n", mbo);
 	if (unlikely(!mbo))
 		return -EINVAL;
 	most = get_channel(mbo->ifp, mbo->hdm_channel_id);
-	if (unlikely(!most))
+	if (unlikely(!most)) {
+		pr_debug_ratelimited("spurios mbo %p (iface %p.%d)\n", mbo,
+				     mbo->ifp, mbo->hdm_channel_id);
 		return -ENXIO;
+	}
 	if (unlikely(!most->aim)) {
 		pr_debug_ratelimited("mbo %p -> %p.%zd (iface %p.%d): NO AIM\n",
 				     mbo, most, most - mlb_channels,
@@ -772,14 +774,15 @@ static int aim_rx_completion(struct mbo *mbo)
 	ext = most->aim->ext;
 	spin_unlock_irqrestore(&most->aim->ext_slock, flags);
 	if (ext) {
-		pr_debug_ratelimited("mbo %p -> %p.%zd (iface %p.%d) -> ext %p.%p\n",
-				     mbo, most, most - mlb_channels,
-				     mbo->ifp, mbo->hdm_channel_id,
-				     ext, ext->rx);
-		if (ext->rx)
+		if (likely(ext->rx))
 			ext->rx(ext, mbo);
-		else
+		else {
+			pr_debug_ratelimited("mbo %p -> %p.%zd (iface %p.%d) -> ext %p.%p\n",
+					     mbo, most, most - mlb_channels,
+					     mbo->ifp, mbo->hdm_channel_id,
+					     ext, ext->rx);
 			most_put_mbo(mbo);
+		}
 	} else {
 		kfifo_in(&most->aim->fifo, &mbo, 1);
 		wake_up_interruptible(&most->aim->wq);
@@ -793,10 +796,11 @@ static int aim_tx_completion(struct most_interface *iface, int channel_id)
 	struct mlb150_ext *ext;
 	struct mostcore_channel *most;
 
-	pr_debug_ratelimited("iface %p, channel_id %d\n", iface, channel_id);
 	most = get_channel(iface, channel_id);
-	if (unlikely(!most))
+	if (unlikely(!most)) {
+		pr_debug_ratelimited("unexpected TX: iface %p.%d\n", iface, channel_id);
 		return -ENXIO;
+	}
 	if (unlikely(!most->aim)) {
 		pr_debug_ratelimited("%p.%zd (iface %p.%d): NO AIM\n",
 				     most, most - mlb_channels,
