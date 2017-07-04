@@ -189,10 +189,14 @@ static const struct sysfs_ops most_channel_sysfs_ops = {
 static void most_free_mbo_coherent(struct mbo *mbo)
 {
 	struct most_c_obj *c = mbo->context;
-	u16 const coherent_buf_size = c->cfg.buffer_size + c->cfg.extra_len;
+	size_t const coherent_buf_size = c->cfg.buffer_size + c->cfg.extra_len;
 
-	dma_free_coherent(NULL, coherent_buf_size, mbo->virt_address,
-			  mbo->bus_address);
+	if (c->iface->free_mbo_buf)
+		c->iface->free_mbo_buf(c->iface, c->channel_id,
+				       mbo, coherent_buf_size);
+	else
+		dma_free_coherent(NULL, coherent_buf_size, mbo->virt_address,
+				  mbo->bus_address);
 	kfree(mbo);
 	if (atomic_sub_and_test(1, &c->mbo_ref))
 		complete(&c->cleanup);
@@ -1311,7 +1315,7 @@ static int arm_mbo_chain(struct most_c_obj *c, int dir,
 	unsigned int i;
 	int retval;
 	struct mbo *mbo;
-	u32 coherent_buf_size = c->cfg.buffer_size + c->cfg.extra_len;
+	size_t coherent_buf_size = c->cfg.buffer_size + c->cfg.extra_len;
 
 	atomic_set(&c->mbo_nq_level, 0);
 
@@ -1324,14 +1328,22 @@ static int arm_mbo_chain(struct most_c_obj *c, int dir,
 		mbo->context = c;
 		mbo->ifp = c->iface;
 		mbo->hdm_channel_id = c->channel_id;
-		mbo->virt_address = dma_alloc_coherent(NULL,
-						       coherent_buf_size,
-						       &mbo->bus_address,
-						       GFP_KERNEL);
-		if (!mbo->virt_address) {
-			pr_info("WARN: No DMA coherent buffer.\n");
-			retval = i;
-			goto _error1;
+		if (c->iface->alloc_mbo_buf) {
+			retval = c->iface->alloc_mbo_buf(c->iface, c->channel_id,
+							 mbo, coherent_buf_size);
+			if (retval)
+				goto _error1;
+		} else {
+			mbo->virt_address = dma_alloc_coherent(NULL,
+							       coherent_buf_size,
+							       &mbo->bus_address,
+							       GFP_KERNEL);
+			if (!mbo->virt_address) {
+				pr_warn("%s: No DMA coherent buffer (%zu bytes)\n",
+					c->iface->description, coherent_buf_size);
+				retval = i;
+				goto _error1;
+			}
 		}
 		mbo->complete = compl;
 		mbo->num_buffers_ptr = &dummy_num_buffers;

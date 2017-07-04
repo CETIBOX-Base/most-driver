@@ -266,6 +266,12 @@ struct mbo {
  *   The callback returns a negative value on error, otherwise 0.
  * @request_netinfo: triggers retrieving of network info from the HDM by
  *   means of "Message exchange over MDP/MEP"
+ * @alloc_mbo_buf: must allocate the buffer required by the HDM hardware,
+ *   if set. Must set virt_address and bus_address, if allocation succeeds and
+ *   return 0. Returns a negative errors code otherwise.
+ *   The default implementation uses dma_alloc_coherent.
+ * @free_mbo_buf: must free the buffer allocated by alloc_mbo_buf,
+ *   if set. The default implementation will use dma_free_coherent.
  * @priv Private field used by mostcore to store context information.
  */
 struct most_interface {
@@ -280,6 +286,10 @@ struct most_interface {
 		       struct mbo *mbo);
 	int (*poison_channel)(struct most_interface *iface, int channel_idx);
 	void (*request_netinfo)(struct most_interface *iface, int channel_idx);
+	int (*alloc_mbo_buf)(struct most_interface *iface, int channel_idx,
+			     struct mbo *, size_t size);
+	void (*free_mbo_buf)(struct most_interface *iface, int channel_idx,
+			     struct mbo *, size_t size);
 	void *priv;
 };
 
