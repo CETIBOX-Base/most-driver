@@ -812,6 +812,24 @@ static void wq_clear_halt(struct work_struct *wq_obj)
 	mutex_unlock(&mdev->io_mutex);
 }
 
+static int hdm_alloc_mbo_buf(struct most_interface *iface, int channel,
+			     struct mbo *mbo, size_t size)
+{
+	struct most_dev *mdev = to_mdev(iface);
+
+	mbo->virt_address = usb_alloc_coherent(mdev->usb_device, size,
+					       GFP_KERNEL, &mbo->bus_address);
+	return mbo->virt_address ? 0 : -ENOMEM;
+}
+
+static void hdm_free_mbo_buf(struct most_interface *iface, int channel,
+			     struct mbo *mbo, size_t size)
+{
+	struct most_dev *mdev = to_mdev(iface);
+
+	usb_free_coherent(mdev->usb_device, size, mbo->virt_address, mbo->bus_address);
+}
+
 /**
  * hdm_usb_fops - file operation table for USB driver
  */
@@ -1140,6 +1158,8 @@ hdm_probe(struct usb_interface *interface, const struct usb_device_id *id)
 	mdev->iface.request_netinfo = hdm_request_netinfo;
 	mdev->iface.enqueue = hdm_enqueue;
 	mdev->iface.poison_channel = hdm_poison_channel;
+	mdev->iface.alloc_mbo_buf = hdm_alloc_mbo_buf;
+	mdev->iface.free_mbo_buf = hdm_free_mbo_buf;
 	mdev->iface.description = mdev->description;
 	mdev->iface.num_channels = num_endpoints;
 
