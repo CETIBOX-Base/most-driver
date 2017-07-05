@@ -8,7 +8,7 @@ endif
 obj-m := mostcore.o
 mostcore-y := mostcore/core.o
 
-obj-m += cfg_honda.o
+# obj-m += cfg_honda.o
 cfg_honda-y := cfg-honda/conf.o
 CFLAGS_conf.o := -I$(src)/mostcore
 
@@ -16,7 +16,7 @@ obj-m += aim_cdev.o
 aim_cdev-y := aim-cdev/cdev.o
 CFLAGS_cdev.o := -I$(src)/mostcore
 
-obj-m += aim_mlb150.o
+# obj-m += aim_mlb150.o
 aim_mlb150-y := aim-mlb150/mlb150.o
 CFLAGS_mlb150.o := -I$(src)/mostcore
 
